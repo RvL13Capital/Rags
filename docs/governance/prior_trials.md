@@ -37,7 +37,8 @@ type). They selected nothing, but any rule built from them starts from this reco
 `research_runs/2026-11-23_phase0_volmanaged_ndx/` examined sixteen further configurations on the
 spent NASDAQ-100 sample: one pre-declared primary, twelve planned sensitivities and three
 thresholds of an unplanned in-or-out filter. They are not ablation variants of the breakout system
-and have no N_eff computed here. If any of them is ever taken to untouched markets, the
+and have no N_eff computed here. The phase ended in a final NO-GO under its pre-declared rule and
+the hypothesis is archived. Should any of these configurations nevertheless be taken to untouched markets later, the
 pre-registration must add them to the 11.71 above: as a floor, one further effective trial for the
 planned family and one for the unplanned filter.
 

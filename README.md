@@ -9,7 +9,7 @@
 > [`docs/governance/prior_trials.md`](docs/governance/prior_trials.md).
 > A follow-up on the same spent sample asked whether the one component that helped, the RV20 filter,
 > is worth anything as volatility-managed passive exposure in a EUR 5,000 German retail account:
-> under the pre-declared rule it is not
+> under the pre-declared rule it is not, and the idea is archived
 > ([`research_runs/2026-11-23_phase0_volmanaged_ndx/`](research_runs/2026-11-23_phase0_volmanaged_ndx/README.md)).
 > The release battery was revised once after that run was audited (see "Release gates"); the run
 > fails under the old and the new battery alike.

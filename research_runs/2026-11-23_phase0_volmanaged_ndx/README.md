@@ -1,6 +1,7 @@
 # Phase 0: volatility-managed NASDAQ-100 on the spent 2015–2025 sample
 
-**Verdict under the plan: NO-GO.** The pre-declared specification (inverse-variance weight on
+**Final verdict: NO-GO. The hypothesis is archived and no untouched market will be spent on it.**
+The pre-declared specification (inverse-variance weight on
 RV20, capped at 1.0, in a EUR 5,000 Capital.com 1:1 account, after costs and German tax) has a
 positive spanning α but a negative certainty-equivalent difference against buy-and-hold, and the
 rule in [`PLAN.md`](PLAN.md) needs both to be positive. No untouched market was loaded.
@@ -8,8 +9,9 @@ rule in [`PLAN.md`](PLAN.md) needs both to be positive. No untouched market was 
 **One result outside the plan complicates that.** The filter that actually sat in v8 (hold the
 index unless RV20 is above the 80th percentile of its own trailing year) was checked afterwards as
 an in-or-out rule. It clears both legs of the rule on point estimates. It is fragile and was looked
-at after the planned results were known. Which of the two is "the hypothesis" is a decision for the
-owner of this research; it is laid out at the end.
+at after the planned results were known. The owner of this research was shown both results and
+decided to hold to the committed plan: the planned rule failed, so the verdict is final. The filter
+result stays on record below as an observation, not as a hypothesis in waiting.
 
 The sample is spent. Nothing here is evidence that either rule works out of sample.
 
