@@ -13,8 +13,9 @@ NASDAQ-100:
    shows how strong the planted edge has to be before the fixed-prior
    baseline sees it at all.
 3. VEHICLE comparison on the planted data: the same fixed-prior baseline on a
-   micro-lot CFD (0.01 and 0.1 lots), the IBKR IBUST100 CFD (whole units) and
-   a long-only cash UCITS ETF, with lots normalised to today's index level.
+   Capital.com EU CFD (leveraged and 1:1), the Pepperstone EU cTrader CFD,
+   the IBKR IBUST100 CFD (whole units) and a long-only cash UCITS ETF, with
+   lots normalised to today's index level.
    This checks the sizing mechanics per broker; it is not a cost forecast.
 
 No number printed here is evidence about any real market.
@@ -58,7 +59,7 @@ def _market(edge: float, end: str, cache: Path, seed: int) -> tuple[dict, Featur
 
 
 def _context(m: dict, fs: FeatureSet) -> BacktestContext:
-    pre = broker_preset("pepperstone_eu_ctrader", 0.01, REFERENCE_INDEX_LEVEL)
+    pre = broker_preset("capital_com_eu_leveraged", None, REFERENCE_INDEX_LEVEL)
     cfg = BacktestConfig(instrument=pre.instrument, costs=_relative(pre.costs))
     return BacktestContext(fs, cfg, m["fx"], m["rate"], m["events"])
 
@@ -76,11 +77,10 @@ def vehicle_comparison(m: dict, fs: FeatureSet, b_risk: float = 0.0025) -> pd.Da
         return label, b.instrument, replace(b.costs, **cost_kw)
 
     vehicles = [
-        pre("pepperstone_eu_ctrader", "Pepperstone EU cTrader, 0.01 lot", 0.01),
-        pre("pepperstone_eu_ctrader", "Pepperstone EU cTrader, 0.10 lot", 0.10),
-        pre("capital_com_eu_rest", "Capital.com EU, 0.10 lot (as specified)"),
-        pre("capital_com_eu_rest", "Capital.com EU, 0.001 lot, +4.1% financing (its own page)", 0.001,
-            financing_markup=0.041),
+        pre("capital_com_eu_leveraged", "Capital.com EU leveraged, 0.001 lot, EUR account"),
+        pre("capital_com_eu_leveraged", "Capital.com EU leveraged, 0.001 lot, USD sub-account", fx_conversion_fee=0.0),
+        pre("capital_com_eu_unleveraged_1to1", "Capital.com EU 1:1, 0.001 lot, no funding"),
+        pre("pepperstone_eu_ctrader", "Pepperstone EU cTrader Razor, 0.10 lot"),
         pre("ibkr_cfd", "IBKR IBUST100, 1 unit"),
         pre("ucits_etf", "UCITS ETF, long only"),
     ]
@@ -96,6 +96,8 @@ def vehicle_comparison(m: dict, fs: FeatureSet, b_risk: float = 0.0025) -> pd.Da
             "rejected_below_min_lot": rej.get("below_min_lot", 0), "rejected_short": rej.get("short_not_allowed", 0),
             "trades": met["n_trades"], "net_pnl": met["net_pnl"], "transaction_costs": met["transaction_costs"],
             "financing_costs": met["financing_costs"], "sharpe": met["sharpe"],
+            "fx_fee": float(res.real_trades()["fx_fee"].sum()) if met["n_trades"] else 0.0,
+            "avg_leverage": float(res.real_trades()["leverage"].mean()) if met["n_trades"] else 0.0,
         })
     return pd.DataFrame(rows)
 
@@ -206,7 +208,7 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
     planted_seen = s1["sharpe"] > s0["sharpe"] + 0.5 and s1["net_pnl"] > 0 and s1["profit_factor"] > 1.2
     v25 = veh[0.0025].set_index("vehicle")
     sizing_ok = (v25.loc["IBKR IBUST100, 1 unit", "trades"] == 0
-                 and v25.loc["Pepperstone EU cTrader, 0.01 lot", "trades"] > 0)
+                 and v25.loc["Capital.com EU leveraged, 0.001 lot, EUR account", "trades"] > 0)
     ok = null_rejected and planted_seen and sizing_ok
 
     def line(name: str, s: dict, rep: dict) -> str:
@@ -232,12 +234,13 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         return L
 
     def vehicle_table(df: pd.DataFrame) -> list[str]:
-        L = ["| Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | "
-             "Transaction costs | Financing |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        L = ["| Vehicle | Orders | Rejected: below minimum lot | Rejected: short | Trades | Average leverage | "
+             "Net P&L (EUR) | Spread, slippage, commission, conversion | of which conversion | Financing |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for r in df.to_dict(orient="records"):
-            L.append(f"| {r['vehicle']} | {r['signals']} | {r['orders']} | {r['rejected_below_min_lot']} | "
-                     f"{r['rejected_short']} | {r['trades']} | {r['net_pnl']:.2f} | {r['transaction_costs']:.2f} | "
-                     f"{r['financing_costs']:.2f} |")
+            L.append(f"| {r['vehicle']} | {r['orders']} | {r['rejected_below_min_lot']} | {r['rejected_short']} | "
+                     f"{r['trades']} | {r['avg_leverage']:.2f}x | {r['net_pnl']:.2f} | {r['transaction_costs']:.2f} | "
+                     f"{r['fx_fee']:.2f} | {r['financing_costs']:.2f} |")
         return L
 
     md = [
@@ -256,7 +259,7 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         f"(failed gates: {', '.join(k for k, v in gates0.items() if v == 'FAIL') or 'none'})",
         f"- Planted edge clearly visible out of sample (Sharpe at least 0.5 above null, positive net P&L, "
         f"profit factor above 1.2): **{'PASS' if planted_seen else 'FAIL'}**",
-        f"- Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, 0.01-lot CFD does): "
+        f"- Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, the 0.001-lot CFD does): "
         f"**{'PASS' if sizing_ok else 'FAIL'}**", "",
         "## Operating characteristics of the release gates", "",
         f"On this run the positive control fails {len(failed1)} of {len(gates1)} gates"

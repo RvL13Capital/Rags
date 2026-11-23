@@ -334,6 +334,42 @@ def test_points_spread_fills():
     assert t["exit_px"] == pytest.approx(99.0 - 0.1 * 99.0 / 98.8)
 
 
+def test_conversion_markup_on_realised_pnl_and_funding():
+    """0.7% of the absolute amount converted, on a loss as much as on a gain,
+    and on every overnight funding charge."""
+    costs = CostModel(spread_bps=0, slippage_bps=0, commission_bps=0, financing_markup=0.04,
+                      default_benchmark_rate=0.04, fx_conversion_fee=0.007)
+    plain = CostModel(spread_bps=0, slippage_bps=0, commission_bps=0, financing_markup=0.04,
+                      default_benchmark_rate=0.04)
+
+    def scenario(c):
+        bars = flat_market()
+        set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)                      # long 5 units at 101
+        return one_trade(run(bars, {S: LONG}, params=P.with_(max_hold_days=2), costs=c))   # out at 100 next day
+
+    t, base = scenario(costs), scenario(plain)
+    funding = 5.0 * 100.0 * 0.08 / 360.0                                      # one night at SOFR + 4%
+    assert base["financing"] == pytest.approx(funding) and base["fx_fee"] == 0.0
+    assert t["fx_fee"] == pytest.approx(0.007 * (abs(-5.0) + funding))
+    assert t["net_pnl"] == pytest.approx(base["net_pnl"] - t["fx_fee"])
+    # stressed costs scale the mark-up as well
+    assert scenario(costs.stressed(1.5))["fx_fee"] == pytest.approx(
+        0.0105 * (5.0 + 5.0 * 100.0 * (0.04 + 0.06) / 360.0))
+
+
+def test_one_to_one_cfd_pays_no_overnight_funding():
+    from ndxswing.config import broker_preset
+    from dataclasses import replace
+
+    one = broker_preset("capital_com_eu_unleveraged_1to1")
+    inst = replace(one.instrument, quote_ccy="EUR")                           # scripted bars need no FX series
+    bars = flat_market()
+    set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)
+    t = one_trade(run(bars, {S: LONG}, params=P.with_(max_hold_days=3), costs=one.costs, instrument=inst))
+    assert t["financing"] == 0.0 and t["fx_fee"] == 0.0 and t["sessions_held"] == 3
+    assert t["leverage"] <= 0.5 + 1e-9
+
+
 def test_unhedged_eur_etf_carries_fx_on_the_notional():
     """EUR-quoted ETF on a USD index: P&L = shares * (P1 * X1 - P0 * X0).
     Index falls 101 -> 99 while the dollar rallies from 0.80 to 1.00 EUR."""

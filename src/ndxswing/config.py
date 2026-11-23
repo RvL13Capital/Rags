@@ -45,6 +45,9 @@ class InstrumentSpec:
     #: index 2,300 sees lots eleven times finer, relative to a fixed 5,000
     #: account, than the lots that account can actually trade today.
     lot_reference_price: float | None = None
+    #: vehicle-level cap on gross exposure / equity (e.g. 1.0 for a 1:1 CFD);
+    #: the strategy's own cap and the drawdown tiers still apply on top
+    max_leverage: float | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in ("cfd", "etf"):
@@ -117,6 +120,10 @@ class CostModel:
     financing_markup: float = 0.03
     financing_day_count: int = 360
     default_benchmark_rate: float = 0.03
+    #: mark-up the broker applies when realised P&L and overnight funding in
+    #: the instrument currency are converted into the account currency
+    #: (fraction of the absolute amount converted; 0 for a same-currency account)
+    fx_conversion_fee: float = 0.0
     stress: float = 1.0
 
     def stressed(self, factor: float) -> "CostModel":
@@ -143,12 +150,26 @@ class CostModel:
         return max(self.commission_min, notional_acct * self.commission_bps * 1e-4) * self.stress
 
 
-def micro_cfd_costs() -> CostModel:
-    """ASSUMPTION (schedule supplied for the EU API CFD brokers, not verified
-    against a published rate card): 1.2 index points spread, no ticket fee,
-    financing at the USD overnight rate +/- 2.5% p.a., ACT/360."""
-    return CostModel(spread_points=1.2, slippage_bps=1.0, commission_bps=0.0, commission_min=0.0,
-                     financing_markup=0.025)
+def pepperstone_costs(account: str = "razor") -> CostModel:
+    """Pepperstone EU NAS100: 1.0 index point on Razor, 1.2 on Standard, no
+    commission on index CFDs, financing at the USD overnight rate +/- 2.5%
+    p.a. on ACT/360.  Figures as supplied from the EU schedule."""
+    if account not in ("razor", "standard"):
+        raise ValueError("account must be 'razor' or 'standard'")
+    return CostModel(spread_points=1.0 if account == "razor" else 1.2, slippage_bps=1.0, commission_bps=0.0,
+                     commission_min=0.0, financing_markup=0.025)
+
+
+def capital_com_costs(fx_conversion_fee: float = 0.007) -> CostModel:
+    """Capital.com EU US100, leveraged: 1.8 index points (a live quote, so
+    indicative), no commission, overnight funding = daily admin fee of
+    0.01111% (4.0% p.a. on ACT/360) plus SOFR on longs, SOFR minus the fee on
+    shorts.  Realised P&L and funding are converted into a EUR account at a
+    0.7% mark-up; pass 0.0 for a USD sub-account.  Figures as supplied from
+    the EU schedule; the daily fee and the 0.7% retail conversion mark-up
+    match Capital.com's published fee pages."""
+    return CostModel(spread_points=1.8, slippage_bps=1.0, commission_bps=0.0, commission_min=0.0,
+                     financing_markup=0.040, fx_conversion_fee=fx_conversion_fee)
 
 
 def ibkr_cfd_costs() -> CostModel:
@@ -177,19 +198,30 @@ def ucits_etf_costs() -> CostModel:
 #   accounts.
 # * IBKR's IBUST100 trades in whole units of 1 x index and sizes to zero.
 #
-# The two CFD presets below carry the schedule supplied for this project.
-# Nothing in them has been confirmed against the brokers' instrument
-# specifications; see ``BrokerPreset.note`` for what a public page showed.
+# The CFD presets carry the EU schedules supplied for this project (see the
+# README for what could be cross-checked against public pages).
 
 
-def pepperstone_eu_ctrader(lot_step: float = 0.01, lot_reference_price: float | None = None) -> InstrumentSpec:
-    """Pepperstone EU via the cTrader Open API: USD 1 per point per lot."""
+def pepperstone_eu_ctrader(lot_step: float = 0.10, lot_reference_price: float | None = None) -> InstrumentSpec:
+    """Pepperstone EU via the cTrader Open API: USD 1 per point per lot,
+    minimum and step 0.10 lot."""
     return replace(ndx_fractional_cfd(lot_step, lot_reference_price), name=f"Pepperstone-EU-cTrader-NAS100-{lot_step:g}")
 
 
-def capital_com_eu_rest(lot_step: float = 0.10, lot_reference_price: float | None = None) -> InstrumentSpec:
-    """Capital.com EU via its REST API: USD 1 per point per contract."""
-    return replace(ndx_fractional_cfd(lot_step, lot_reference_price), name=f"Capital.com-EU-REST-US100-{lot_step:g}")
+def capital_com_eu(lot_step: float = 0.001, lot_reference_price: float | None = None,
+                   unleveraged: bool = False) -> InstrumentSpec:
+    """Capital.com EU via its REST / WebSocket API: USD 1 per point per
+    contract, minimum and step 0.001.
+
+    ``unleveraged=True`` models a 1:1 position: full notional posted as
+    margin, gross exposure capped at 1.0 x equity and no overnight funding.
+    Note that the 50% margin-usage rule of the sizing spec then limits
+    exposure to 0.5 x equity, which is tighter than the 1.0 cap."""
+    base = ndx_fractional_cfd(lot_step, lot_reference_price)
+    if unleveraged:
+        return replace(base, name=f"Capital.com-EU-US100-1to1-{lot_step:g}", margin_rate=1.0, max_leverage=1.0,
+                       pays_financing=False)
+    return replace(base, name=f"Capital.com-EU-US100-{lot_step:g}")
 
 
 @dataclass(frozen=True)
@@ -202,23 +234,26 @@ class BrokerPreset:
 def broker_preset(name: str, lot_step: float | None = None, lot_reference_price: float | None = None,
                   etf_price_ratio: float = 0.0022) -> BrokerPreset:
     """Instrument + cost schedule for one execution venue.  Financing is the
-    USD overnight rate (EFFR / SOFR) plus or minus the markup, ACT/360."""
+    USD overnight rate plus or minus the markup, ACT/360."""
     if name == "pepperstone_eu_ctrader":
         return BrokerPreset(
-            pepperstone_eu_ctrader(0.01 if lot_step is None else lot_step, lot_reference_price), micro_cfd_costs(),
-            "Supplied schedule: 1.2 pt spread, no index commission, ARR +/- 2.5%, minimum 0.01 lot. Pepperstone "
-            "states it charges no commission on index CFDs and advertises NAS100 spreads from about 1.0 pt; the "
-            "only minimum-size figure found (a third-party page) says 0.1 lot. Confirm the minimum in the cTrader "
-            "symbol specification and rerun with --lot-step 0.1 if it applies.")
-    if name == "capital_com_eu_rest":
+            pepperstone_eu_ctrader(0.10 if lot_step is None else lot_step, lot_reference_price), pepperstone_costs(),
+            "Razor account: 1.0 pt spread (Standard: --spread-points 1.2), no index commission, overnight rate "
+            "+/- 2.5% on ACT/360, minimum and step 0.10 lot. A 0.10 lot cannot carry a EUR 12.50 risk budget with "
+            "a typical stop at index 25,000: most signals size to zero below about 0.35-0.50% risk.")
+    if name == "capital_com_eu_leveraged":
         return BrokerPreset(
-            capital_com_eu_rest(0.10 if lot_step is None else lot_step, lot_reference_price), micro_cfd_costs(),
-            "Supplied schedule: 1.2 pt spread, no commission, ARR +/- 2.5%, minimum and step 0.10. Capital.com's own "
-            "EU market page lists a minimum traded quantity of 0.001 and a long overnight adjustment of -0.02226% "
-            "of position value per day, about 8.0% a year or roughly the overnight rate + 4.1%. To model the page "
-            "instead: --lot-step 0.001 --financing-markup 0.041. With a 0.10 lot, 0.25% risk is clipped to zero "
-            "for typical stops; --b-risk 0.0035 is the smallest budget that carries a 1.5 ATR stop of about 135 "
-            "points.")
+            capital_com_eu(0.001 if lot_step is None else lot_step, lot_reference_price), capital_com_costs(),
+            "1.8 pt spread (live quote, indicative), no commission, minimum and step 0.001, overnight funding SOFR "
+            "+/- 4.0% on ACT/360 (0.01111% a day admin fee), 0.7% conversion mark-up on realised P&L and funding "
+            "for a EUR account (--fx-conversion-fee 0 for a USD sub-account).")
+    if name == "capital_com_eu_unleveraged_1to1":
+        return BrokerPreset(
+            capital_com_eu(0.001 if lot_step is None else lot_step, lot_reference_price, unleveraged=True),
+            replace(capital_com_costs(fx_conversion_fee=0.0), financing_markup=0.0),
+            "1:1 position in a USD sub-account: 1.8 pt spread, no commission, minimum 0.001, no overnight funding, "
+            "no conversion mark-up, gross exposure capped at 1.0 x equity (0.5 x after the 50% margin-usage rule). "
+            "The simulation still books equity in EUR; the EURUSD move on a USD cash balance is not modelled.")
     if name == "ibkr_cfd":
         return BrokerPreset(ibkr_ibust100(lot_reference_price), ibkr_cfd_costs(),
                             "IBKR schedule (0.010%, USD 1.00 minimum, benchmark +/- 1.5%, whole units) checked "
@@ -230,7 +265,8 @@ def broker_preset(name: str, lot_step: float | None = None, lot_reference_price:
     raise ValueError(f"unknown broker preset {name!r}; choose from {BROKER_PRESETS}")
 
 
-BROKER_PRESETS: tuple[str, ...] = ("pepperstone_eu_ctrader", "capital_com_eu_rest", "ibkr_cfd", "ucits_etf")
+BROKER_PRESETS: tuple[str, ...] = ("capital_com_eu_leveraged", "capital_com_eu_unleveraged_1to1",
+                                   "pepperstone_eu_ctrader", "ibkr_cfd", "ucits_etf")
 
 
 # --------------------------------------------------------------------------- #

@@ -43,7 +43,7 @@ from ..signal.engine import PreparedSignals, SignalEngine
 TRADE_COLUMNS = [
     "trade_id", "shadow", "segment", "direction", "entry_ts", "exit_ts", "entry_px", "exit_px", "units",
     "stop_init", "r_px", "entry_notional", "initial_risk", "gross_pnl", "commission", "spread_cost",
-    "slippage_cost", "financing", "net_pnl", "r_multiple", "underlying_return", "bars_held", "sessions_held",
+    "slippage_cost", "financing", "fx_fee", "net_pnl", "r_multiple", "underlying_return", "bars_held", "sessions_held",
     "exit_reason", "tp1_hit", "mfe_r", "mae_r", "score", "leverage", "binding", "turnover",
 ]
 
@@ -82,6 +82,7 @@ class _Position:
     realized: float = 0.0      # account ccy, from fill prices
     commission: float = 0.0
     financing: float = 0.0
+    fx_fee: float = 0.0        # conversion mark-up on realised P&L and funding
     spread_cost: float = 0.0
     slip_cost: float = 0.0
     turnover: float = 0.0
@@ -213,6 +214,7 @@ class EventDrivenBacktester:
         slip_f = costs.slippage_frac
         day_count = costs.financing_day_count
         markup = costs.financing_markup * costs.stress
+        fx_fee = costs.fx_conversion_fee * costs.stress
 
         init_eq = cfg.initial_equity if initial_equity is None else initial_equity
         cash = init_eq
@@ -225,7 +227,8 @@ class EventDrivenBacktester:
         eq_dates: list = []
         eq_vals: list[float] = []
         stats = {"orders": 0, "cancel_anti_chase": 0, "expired": 0, "cancel_halt": 0, "rejections": {},
-                 "commission": 0.0, "spread_cost": 0.0, "slippage_cost": 0.0, "financing": 0.0, "turnover": 0.0}
+                 "commission": 0.0, "spread_cost": 0.0, "slippage_cost": 0.0, "financing": 0.0, "fx_fee": 0.0,
+                 "turnover": 0.0}
         peak_bar, max_dd_bar = init_eq, 0.0
         prev_seg = seg_l[i0] if i1 > i0 else 0
 
@@ -253,13 +256,15 @@ class EventDrivenBacktester:
             comm = costs.commission(notional)
             ps.realized += pnl
             ps.commission += comm
+            conv = fx_fee * abs(pnl)
+            ps.fx_fee += conv
             ps.spread_cost += units * mult * hs_px * x
             ps.slip_cost += units * mult * sl_px * x
             ps.turnover += notional
             ps.exit_value += units * px
             ps.units = round(ps.units - units, 10)
             if not ps.shadow:
-                cash += pnl - comm
+                cash += pnl - comm - conv
             if ps.units <= 1e-12:
                 ps.exit_reason, ps.exit_i = reason, i
                 close_trade(ps)
@@ -276,18 +281,20 @@ class EventDrivenBacktester:
             comm = costs.commission(notional)
             ps.realized += pnl
             ps.commission += comm
+            conv = fx_fee * abs(pnl)
+            ps.fx_fee += conv
             ps.turnover += notional
             ps.exit_value += units * px
             ps.units = round(ps.units - units, 10)
             if not ps.shadow:
-                cash += pnl - comm
+                cash += pnl - comm - conv
             if ps.units <= 1e-12:
                 ps.exit_reason, ps.exit_i = reason, i
                 close_trade(ps)
                 pos = None
 
         def close_trade(ps: _Position) -> None:
-            net = ps.realized - ps.commission - ps.financing
+            net = ps.realized - ps.commission - ps.financing - ps.fx_fee
             risk0 = ps.units_init * mult * ps.r_px * ps.entry_fx
             notional0 = ps.units_init * mult * ps.entry_px * ps.entry_fx
             und = net / notional0
@@ -301,7 +308,7 @@ class EventDrivenBacktester:
                 "stop_init": ps.stop_init, "r_px": ps.r_px, "entry_notional": notional0, "initial_risk": risk0,
                 "gross_pnl": ps.realized + ps.spread_cost + ps.slip_cost, "commission": ps.commission,
                 "spread_cost": ps.spread_cost, "slippage_cost": ps.slip_cost, "financing": ps.financing,
-                "net_pnl": net, "r_multiple": net / risk0 if risk0 > 0 else np.nan, "underlying_return": und,
+                "fx_fee": ps.fx_fee, "net_pnl": net, "r_multiple": net / risk0 if risk0 > 0 else np.nan, "underlying_return": und,
                 "bars_held": ps.exit_i - ps.entry_i + 1, "sessions_held": sess[ps.exit_i] - ps.entry_sess + 1,
                 "exit_reason": ps.exit_reason, "tp1_hit": ps.tp1_done,
                 "mfe_r": (ps.best - ps.entry_px) * ps.direction / ps.r_px,
@@ -314,6 +321,7 @@ class EventDrivenBacktester:
                 stats["spread_cost"] += ps.spread_cost
                 stats["slippage_cost"] += ps.slip_cost
                 stats["financing"] += ps.financing
+                stats["fx_fee"] += ps.fx_fee
                 stats["turnover"] += ps.turnover
 
         def open_position(i: int, pd_: _Pending, ref_px: float, at_limit: bool) -> None:
@@ -391,9 +399,11 @@ class EventDrivenBacktester:
                         notional = pos.units * mult * c[i - 1] * X[i]
                         rate = (self._rate[i] + markup) if pos.direction > 0 else (markup - self._rate[i])
                         fin = notional * rate / day_count * self._nights[sess[i]]
+                        conv = fx_fee * abs(fin)
                         pos.financing += fin
+                        pos.fx_fee += conv
                         if not pos.shadow:
-                            cash -= fin
+                            cash -= fin + conv
                 breakers.on_session_open(equity_now(i - 1) if i > i0 else cash, e.ts[i])
 
             # ---------------- open position: exits within bar i

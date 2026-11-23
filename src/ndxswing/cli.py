@@ -2,7 +2,7 @@
 
     ndxswing ingest bars     --db data/market.duckdb --file ndx_1h.parquet --symbol NDX --source "IBKR TRADES"
     ndxswing ingest series   --db ... --file eurusd.csv --name EURUSD
-    ndxswing ingest macro    --db ...                      (EFFR, SOFR, USD_RATE, EURUSD from FRED; no key needed)
+    ndxswing ingest macro    --db ...     (EFFR, SOFR, EURUSD and USD_RATE = EFFR spliced into SOFR; no key needed)
     ndxswing ingest fred     --db ... --series DEXUSEU --name EURUSD
     ndxswing ingest events   --db ... --file tier1_events.csv
     ndxswing ingest ibkr     --db ... --symbol NDX --sec-type IND --exchange NASDAQ
@@ -68,7 +68,8 @@ def _context(a: argparse.Namespace) -> BacktestContext:
     print(f"[config] preset {a.instrument}: {preset.note}", file=sys.stderr)
     over = {k: v for k, v in (("spread_points", a.spread_points), ("spread_bps", a.spread_bps),
                               ("slippage_bps", a.slippage_bps), ("commission_bps", a.commission_bps),
-                              ("commission_min", a.commission_min), ("financing_markup", a.financing_markup))
+                              ("commission_min", a.commission_min), ("financing_markup", a.financing_markup),
+                              ("fx_conversion_fee", a.fx_conversion_fee))
             if v is not None}
     if "spread_bps" in over and "spread_points" not in over:
         over["spread_points"] = None            # an explicit relative spread replaces the preset's points
@@ -93,7 +94,7 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--cache", default="data/feature_cache")
     p.add_argument("--hurst-boot", type=int, default=200)
     p.add_argument("--equity", type=float, default=5000.0)
-    p.add_argument("--instrument", choices=list(BROKER_PRESETS), default="pepperstone_eu_ctrader",
+    p.add_argument("--instrument", choices=list(BROKER_PRESETS), default="capital_com_eu_leveraged",
                    help="broker / vehicle preset (lot rules and cost schedule); see config.py")
     p.add_argument("--lot-step", type=float, default=None,
                    help="CFD presets: lot step and minimum in index units (default: the preset's)")
@@ -108,6 +109,9 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--commission-bps", type=float, default=None)
     p.add_argument("--commission-min", type=float, default=None)
     p.add_argument("--financing-markup", type=float, default=None)
+    p.add_argument("--fx-conversion-fee", type=float, default=None,
+                   help="override: mark-up on converting realised P&L and funding into the account currency "
+                        "(0.007 for a EUR account at Capital.com, 0 for a USD sub-account)")
     p.add_argument("--out", default="runs/latest")
 
 
@@ -118,7 +122,8 @@ def _lot_warning(stats: dict, a: argparse.Namespace) -> None:
     if clipped and clipped >= 0.2 * (clipped + taken):
         print(f"[warn] {clipped} of {clipped + taken} sized signals were below the minimum lot at "
               f"b_risk={a.b_risk:.4f}. The lot is too coarse for this risk budget: use a finer --lot-step if the "
-              f"broker allows it, or a larger --b-risk (0.0035 carries a 0.10 lot with a ~135 point stop).",
+              f"broker allows it, a broker with a finer lot (capital_com_eu_leveraged trades 0.001), or a larger "
+              f"--b-risk (0.0035 carries a 0.10 lot with a ~135 point stop).",
               file=sys.stderr)
 
 

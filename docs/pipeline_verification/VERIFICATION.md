@@ -3,18 +3,18 @@
 > **PIPELINE VERIFICATION - SYNTHETIC DATA.** These results exercise the code on simulated prices.
 > They are not empirical market performance and say nothing about the NASDAQ-100.
 
-Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 267s.
+Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 262s.
 
 | Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (gate) | N_eff | DSR (cross-trial mean, info) | CSCV P(OOS loss) | Rank PBO | Gates failed |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Null (martingale), full geometry tuned | -0.26 | 0.87 | 3.81% | 199 | -129.49 | 0.024 | 23.6 | 0.014 | 0.542 | 0.566 | 7 of 10 |
-| Planted edge x2 (after ablation, thresholds only) | 0.96 | 1.75 | 2.65% | 189 | 963.38 | 0.968 | 6.1 | 0.099 | 0.063 | n/a | 0 of 10 |
+| Null (martingale), full geometry tuned | -0.30 | 0.85 | 4.29% | 194 | -151.87 | 0.019 | 23.7 | 0.015 | 0.567 | 0.525 | 7 of 10 |
+| Planted edge x2 (after ablation, thresholds only) | 0.90 | 1.69 | 2.71% | 190 | 942.92 | 0.959 | 6.0 | 0.111 | 0.071 | n/a | 0 of 10 |
 
 ## Checks
 
 - Null data rejected by the release gates: **PASS** (failed gates: OOS net Sharpe, Deflated Sharpe Ratio (zero-mean null, N_eff), CSCV P(OOS loss of IS-best), CSCV rank PBO, OOS net profit factor, OOS net P&L under 1.5x costs, Profitable walk-forward OOS folds)
 - Planted edge clearly visible out of sample (Sharpe at least 0.5 above null, positive net P&L, profit factor above 1.2): **PASS**
-- Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, 0.01-lot CFD does): **PASS**
+- Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, the 0.001-lot CFD does): **PASS**
 
 ## Operating characteristics of the release gates
 
@@ -22,8 +22,8 @@ On this run the positive control fails 0 of 10 gates. One history says little, s
 
 | Planted strength | Histories | Pass every gate | Median OOS Sharpe | Gates failed most often |
 |---:|---:|---:|---:|---|
-| 0 | 40 | 0 | -0.18 | OOS net Sharpe (40); Profitable walk-forward OOS folds (40); Deflated Sharpe Ratio (zero-mean null, N_eff) (38) |
-| 2 | 40 | 22 | 0.93 | Profitable walk-forward OOS folds (16); OOS net Sharpe (15); Deflated Sharpe Ratio (zero-mean null, N_eff) (4) |
+| 0 | 40 | 0 | -0.25 | OOS net Sharpe (40); Profitable walk-forward OOS folds (40); Deflated Sharpe Ratio (zero-mean null, N_eff) (38) |
+| 2 | 40 | 17 | 0.86 | Profitable walk-forward OOS folds (19); OOS net Sharpe (16); Deflated Sharpe Ratio (zero-mean null, N_eff) (7) |
 
 The first row estimates the false-positive rate of the battery, the second its power against an edge of this size. Thresholds: Sharpe > 0.80, DSR > 0.95, P(OOS loss) < 15%, profit factor > 1.20, positive under 1.5x costs, max drawdown < 10%, Monte Carlo P(DD >= 20%) < 2%, profitable folds >= 65%, trades >= 150.
 
@@ -33,34 +33,34 @@ Fixed-prior baseline, no tuning, stitched walk-forward OOS, same seed. Strength 
 
 | Planted strength | Trend drift / day | OOS Sharpe | OOS PF | Expectancy (R) | Trades | Net P&L (EUR) | Profitable folds |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 0 | 0.00% | -0.05 | 0.96 | -0.051 | 178 | -47.12 | 45% |
-| 1 | 0.12% | 0.05 | 1.02 | 0.029 | 187 | 33.65 | 48% |
-| 2 | 0.24% | 0.96 | 1.75 | 0.477 | 189 | 963.38 | 69% |
-| 3 | 0.36% | 1.62 | 2.40 | 0.865 | 206 | 2078.50 | 74% |
+| 0 | 0.00% | -0.08 | 0.95 | -0.067 | 179 | -71.36 | 45% |
+| 1 | 0.12% | 0.01 | 1.00 | 0.012 | 188 | 1.90 | 48% |
+| 2 | 0.24% | 0.90 | 1.69 | 0.452 | 190 | 942.92 | 69% |
+| 3 | 0.36% | 1.53 | 2.27 | 0.828 | 206 | 2029.19 | 69% |
 
 ## Planted-edge ablation
 
 # Sequential ablation (stitched walk-forward OOS)
 
-Retention floor on trade count: 94. Variants evaluated: 15.
+Retention floor on trade count: 95. Variants evaluated: 15.
 
 | Step | Module | Variant | Status | OOS Sharpe | d Sharpe | Calmar | d Calmar | PF | d PF | ES99 | d ES99 | Max DD | Trades |
 |---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 0 | baseline | - | BASELINE | 0.963 | n/a | 0.627 | n/a | 1.755 | n/a | 0.43% | n/a | 2.65% | 189 |
-| 1 | multi_stage_exits | - | rejected (no OOS net gain) | 0.901 | -0.061 | 0.418 | -0.209 | 1.553 | -0.202 | 0.36% | -0.07% | 2.75% | 206 |
-| 2 | trend_flip_exit | - | rejected (no OOS net gain) | 0.963 | 0.000 | 0.627 | 0.000 | 1.755 | 0.000 | 0.43% | 0.00% | 2.65% | 189 |
-| 3 | regime_gate | rv20 | rejected (parsimony benchmark) | 0.884 | -0.079 | 0.507 | -0.121 | 1.802 | 0.047 | 0.44% | 0.01% | 2.76% | 143 |
-| 3 | regime_gate | hmm2 | rejected | 1.081 | 0.119 | 0.488 | -0.140 | 2.154 | 0.399 | 0.39% | -0.04% | 3.15% | 124 |
-| 3 | regime_gate | hmm3 | rejected (parsimony benchmark) | 0.280 | -0.682 | 0.086 | -0.541 | 1.334 | -0.421 | 0.35% | -0.08% | 2.89% | 64 |
-| 4 | garch_vol | - | rejected (no OOS net gain) | 0.810 | -0.153 | 0.483 | -0.145 | 1.633 | -0.122 | 0.41% | -0.02% | 2.65% | 167 |
-| 5 | evt_es_cap | - | rejected (no OOS net gain) | 0.791 | -0.172 | 0.578 | -0.050 | 1.705 | -0.050 | 0.27% | -0.16% | 1.32% | 173 |
-| 6 | spread_gate | - | rejected (no OOS net gain) | 0.922 | -0.040 | 0.487 | -0.140 | 1.774 | 0.019 | 0.41% | -0.01% | 3.07% | 166 |
-| 7 | vpin_filter | - | rejected (no OOS net gain) | 1.011 | 0.049 | 0.691 | 0.064 | 1.834 | 0.079 | 0.42% | -0.01% | 2.48% | 183 |
-| 8 | event_blackout | - | rejected (no OOS net gain) | 0.959 | -0.004 | 0.620 | -0.007 | 1.747 | -0.008 | 0.42% | -0.01% | 2.65% | 189 |
-| 9 | score_sizing | - | rejected (no OOS net gain) | 0.963 | 0.000 | 0.627 | 0.000 | 1.755 | 0.000 | 0.43% | 0.00% | 2.65% | 189 |
-| 10 | kelly_cap | - | rejected (no OOS net gain) | 0.920 | -0.043 | 0.514 | -0.113 | 1.997 | 0.242 | 0.40% | -0.02% | 2.48% | 116 |
-| 11 | hurst_gate | lcb | rejected (trade starvation) | 0.138 | -0.825 | 0.056 | -0.571 | 1.599 | -0.156 | 0.00% | -0.43% | 0.65% | 3 |
-| 11 | hurst_gate | point | rejected (trade starvation) | 0.148 | -0.815 | 0.072 | -0.556 | 1.292 | -0.462 | 0.21% | -0.22% | 1.20% | 26 |
+| 0 | baseline | - | BASELINE | 0.903 | n/a | 0.602 | n/a | 1.691 | n/a | 0.44% | n/a | 2.71% | 190 |
+| 1 | multi_stage_exits | - | rejected (no OOS net gain) | 0.840 | -0.062 | 0.406 | -0.196 | 1.503 | -0.188 | 0.39% | -0.06% | 2.77% | 207 |
+| 2 | trend_flip_exit | - | rejected (no OOS net gain) | 0.903 | 0.000 | 0.602 | 0.000 | 1.691 | 0.000 | 0.44% | 0.00% | 2.71% | 190 |
+| 3 | regime_gate | rv20 | rejected (parsimony benchmark) | 0.822 | -0.080 | 0.448 | -0.155 | 1.727 | 0.037 | 0.45% | 0.01% | 3.01% | 143 |
+| 3 | regime_gate | hmm2 | rejected | 1.009 | 0.106 | 0.442 | -0.161 | 2.040 | 0.350 | 0.40% | -0.04% | 3.35% | 124 |
+| 3 | regime_gate | hmm3 | rejected (parsimony benchmark) | 0.250 | -0.652 | 0.076 | -0.526 | 1.292 | -0.398 | 0.37% | -0.08% | 3.04% | 64 |
+| 4 | garch_vol | - | rejected (no OOS net gain) | 0.761 | -0.142 | 0.468 | -0.134 | 1.586 | -0.105 | 0.43% | -0.01% | 2.71% | 168 |
+| 5 | evt_es_cap | - | rejected (no OOS net gain) | 0.755 | -0.148 | 0.549 | -0.054 | 1.647 | -0.044 | 0.30% | -0.14% | 1.47% | 190 |
+| 6 | spread_gate | - | rejected (no OOS net gain) | 0.851 | -0.052 | 0.431 | -0.171 | 1.696 | 0.006 | 0.44% | -0.00% | 3.36% | 167 |
+| 7 | vpin_filter | - | rejected (no OOS net gain) | 0.944 | 0.041 | 0.628 | 0.025 | 1.757 | 0.067 | 0.44% | -0.00% | 2.67% | 184 |
+| 8 | event_blackout | - | rejected (no OOS net gain) | 0.896 | -0.007 | 0.594 | -0.008 | 1.681 | -0.009 | 0.44% | -0.01% | 2.71% | 190 |
+| 9 | score_sizing | - | rejected (no OOS net gain) | 0.903 | 0.000 | 0.602 | 0.000 | 1.691 | 0.000 | 0.44% | 0.00% | 2.71% | 190 |
+| 10 | kelly_cap | - | rejected (no OOS net gain) | 0.940 | 0.037 | 0.560 | -0.042 | 1.964 | 0.273 | 0.43% | -0.01% | 2.53% | 121 |
+| 11 | hurst_gate | lcb | rejected (trade starvation) | 0.132 | -0.770 | 0.053 | -0.549 | 1.569 | -0.122 | 0.00% | -0.44% | 0.69% | 3 |
+| 11 | hurst_gate | point | rejected (trade starvation) | 0.152 | -0.751 | 0.081 | -0.522 | 1.277 | -0.413 | 0.23% | -0.22% | 1.18% | 27 |
 | 12 | arma_z_filter | - | BLOCKED (Pesaran-Timmermann not significant) | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 
 **Retained modules:** none (baseline only)
@@ -74,35 +74,35 @@ Full sample, default parameters, no tuning. Spreads are each vehicle's preset, e
 
 Risk per trade 0.25% (EUR 12.50):
 
-| Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | Transaction costs | Financing |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Pepperstone EU cTrader, 0.01 lot | 1204 | 638 | 2 | 0 | 265 | 1722.36 | 77.91 | 110.49 |
-| Pepperstone EU cTrader, 0.10 lot | 1204 | 290 | 645 | 0 | 121 | 744.91 | 37.25 | 53.00 |
-| Capital.com EU, 0.10 lot (as specified) | 1204 | 290 | 645 | 0 | 121 | 744.91 | 37.25 | 53.00 |
-| Capital.com EU, 0.001 lot, +4.1% financing (its own page) | 1204 | 640 | 0 | 0 | 265 | 1730.17 | 81.59 | 186.78 |
-| IBKR IBUST100, 1 unit | 1204 | 0 | 1204 | 0 | 0 | 0.00 | 0.00 | 0.00 |
-| UCITS ETF, long only | 1204 | 300 | 0 | 684 | 119 | 155.96 | 324.85 | 0.00 |
+| Vehicle | Orders | Rejected: below minimum lot | Rejected: short | Trades | Average leverage | Net P&L (EUR) | Spread, slippage, commission, conversion | of which conversion | Financing |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Capital.com EU leveraged, 0.001 lot, EUR account | 644 | 0 | 0 | 263 | 0.28x | 1640.68 | 128.46 | 40.38 | 179.13 |
+| Capital.com EU leveraged, 0.001 lot, USD sub-account | 644 | 0 | 0 | 263 | 0.28x | 1686.83 | 88.39 | 0.00 | 179.96 |
+| Capital.com EU 1:1, 0.001 lot, no funding | 644 | 0 | 0 | 263 | 0.28x | 1855.23 | 87.94 | 0.00 | 0.00 |
+| Pepperstone EU cTrader Razor, 0.10 lot | 290 | 645 | 0 | 121 | 0.30x | 746.10 | 36.06 | 0.00 | 53.00 |
+| IBKR IBUST100, 1 unit | 0 | 1204 | 0 | 0 | 0.00x | 0.00 | 0.00 | 0.00 | 0.00 |
+| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.21x | 155.96 | 324.85 | 0.00 | 0.00 |
 
 Risk per trade 0.35% (EUR 17.50):
 
-| Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | Transaction costs | Financing |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Pepperstone EU cTrader, 0.01 lot | 1204 | 640 | 0 | 0 | 265 | 2539.67 | 115.99 | 168.98 |
-| Pepperstone EU cTrader, 0.10 lot | 1204 | 517 | 233 | 0 | 213 | 1691.11 | 77.69 | 111.05 |
-| Capital.com EU, 0.10 lot (as specified) | 1204 | 517 | 233 | 0 | 213 | 1691.11 | 77.69 | 111.05 |
-| Capital.com EU, 0.001 lot, +4.1% financing (its own page) | 1204 | 640 | 0 | 0 | 265 | 2537.27 | 119.97 | 279.58 |
-| IBKR IBUST100, 1 unit | 1204 | 0 | 1204 | 0 | 0 | 0.00 | 0.00 | 0.00 |
-| UCITS ETF, long only | 1204 | 300 | 0 | 684 | 119 | 312.87 | 366.01 | 0.00 |
+| Vehicle | Orders | Rejected: below minimum lot | Rejected: short | Trades | Average leverage | Net P&L (EUR) | Spread, slippage, commission, conversion | of which conversion | Financing |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Capital.com EU leveraged, 0.001 lot, EUR account | 644 | 0 | 0 | 263 | 0.39x | 2389.45 | 188.31 | 59.24 | 266.84 |
+| Capital.com EU leveraged, 0.001 lot, USD sub-account | 644 | 0 | 0 | 263 | 0.39x | 2462.89 | 129.73 | 0.00 | 268.70 |
+| Capital.com EU 1:1, 0.001 lot, no funding | 644 | 0 | 0 | 263 | 0.36x | 2488.68 | 120.43 | 0.00 | 0.00 |
+| Pepperstone EU cTrader Razor, 0.10 lot | 519 | 231 | 0 | 213 | 0.33x | 1693.59 | 75.21 | 0.00 | 111.05 |
+| IBKR IBUST100, 1 unit | 0 | 1204 | 0 | 0 | 0.00x | 0.00 | 0.00 | 0.00 | 0.00 |
+| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.30x | 312.87 | 366.01 | 0.00 | 0.00 |
 
 Risk per trade 0.50% (EUR 25.00):
 
-| Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | Transaction costs | Financing |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Pepperstone EU cTrader, 0.01 lot | 1204 | 640 | 0 | 0 | 265 | 3684.37 | 169.35 | 251.40 |
-| Pepperstone EU cTrader, 0.10 lot | 1204 | 457 | 359 | 0 | 186 | 1304.44 | 91.08 | 95.24 |
-| Capital.com EU, 0.10 lot (as specified) | 1204 | 457 | 359 | 0 | 186 | 1304.44 | 91.08 | 95.24 |
-| Capital.com EU, 0.001 lot, +4.1% financing (its own page) | 1204 | 640 | 0 | 0 | 265 | 3664.36 | 173.30 | 410.33 |
-| IBKR IBUST100, 1 unit | 1204 | 0 | 1204 | 0 | 0 | 0.00 | 0.00 | 0.00 |
-| UCITS ETF, long only | 1204 | 300 | 0 | 684 | 119 | 421.46 | 398.34 | 0.00 |
+| Vehicle | Orders | Rejected: below minimum lot | Rejected: short | Trades | Average leverage | Net P&L (EUR) | Spread, slippage, commission, conversion | of which conversion | Financing |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Capital.com EU leveraged, 0.001 lot, EUR account | 644 | 0 | 0 | 263 | 0.52x | 3419.95 | 270.05 | 85.05 | 387.72 |
+| Capital.com EU leveraged, 0.001 lot, USD sub-account | 644 | 0 | 0 | 263 | 0.53x | 3557.86 | 187.13 | 0.00 | 393.82 |
+| Capital.com EU 1:1, 0.001 lot, no funding | 644 | 0 | 0 | 263 | 0.43x | 3172.77 | 149.73 | 0.00 | 0.00 |
+| Pepperstone EU cTrader Razor, 0.10 lot | 457 | 359 | 0 | 186 | 0.44x | 1348.82 | 89.11 | 0.00 | 99.63 |
+| IBKR IBUST100, 1 unit | 0 | 1204 | 0 | 0 | 0.00x | 0.00 | 0.00 | 0.00 | 0.00 |
+| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.37x | 421.46 | 398.34 | 0.00 | 0.00 |
 
 Full tearsheets: `null_tearsheet.md`, `planted_tearsheet.md`.

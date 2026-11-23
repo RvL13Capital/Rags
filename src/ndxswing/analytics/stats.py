@@ -62,7 +62,8 @@ def compute_metrics(result: BacktestResult) -> dict[str, float]:
     pf = float(gross_w / gross_l) if gross_l > 0 else (np.inf if gross_w > 0 else np.nan)
     avg_w = float(wins.mean()) if len(wins) else np.nan
     avg_l = float(-losses.mean()) if len(losses) else np.nan
-    txn = float(t[["commission", "spread_cost", "slippage_cost"]].to_numpy(dtype=float).sum()) if nt else 0.0
+    cost_cols = [c for c in ("commission", "spread_cost", "slippage_cost", "fx_fee") if c in t.columns]
+    txn = float(t[cost_cols].to_numpy(dtype=float).sum()) if nt else 0.0
     fin = float(t["financing"].sum()) if nt else 0.0
     turnover = float(t["turnover"].sum()) if nt else 0.0
     mean_eq = float(np.mean(eq)) if n else np.nan

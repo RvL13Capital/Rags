@@ -76,11 +76,12 @@ class PortfolioRiskEngine:
             return RiskRejection("invalid_proposal")
 
         shadow = not state.live
-        m_dd, lev_cap = state.m_dd, min(p.max_leverage, state.leverage_cap)
+        vehicle_cap = inst.max_leverage if inst.max_leverage is not None else math.inf
+        m_dd, lev_cap = state.m_dd, min(p.max_leverage, state.leverage_cap, vehicle_cap)
         if shadow:
             if not self.shadow_trading:
                 return RiskRejection("not_live")
-            m_dd, lev_cap = 1.0, p.max_leverage  # would-be baseline size for diagnostics
+            m_dd, lev_cap = 1.0, min(p.max_leverage, vehicle_cap)  # would-be baseline size for diagnostics
 
         kelly_f = math.nan
         kelly_cap = math.inf

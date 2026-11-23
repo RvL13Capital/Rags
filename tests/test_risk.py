@@ -301,11 +301,12 @@ def test_lot_rules_are_normalised_to_a_reference_price():
 
 
 def test_points_spread_and_broker_presets():
-    from ndxswing.config import ibkr_cfd_costs, micro_cfd_costs, ucits_etf_costs, ucits_ndx_etf
+    from ndxswing.config import ibkr_cfd_costs, pepperstone_costs, ucits_etf_costs, ucits_ndx_etf
 
-    c = micro_cfd_costs()
+    c = pepperstone_costs("standard")
     assert c.half_spread_at(25_000.0) == pytest.approx(0.6 / 25_000.0)
     assert c.stressed(1.5).half_spread_at(25_000.0) == pytest.approx(0.9 / 25_000.0)
+    assert pepperstone_costs().spread_points == 1.0                               # Razor
     assert CostModel(spread_bps=2.0).half_spread_at(123.0) == pytest.approx(1e-4)
     ib = ibkr_cfd_costs()
     assert ib.commission(100.0) == 1.0 and ib.commission(50_000.0) == pytest.approx(5.0)   # 0.010%, minimum 1.00
@@ -313,31 +314,75 @@ def test_points_spread_and_broker_presets():
     etf = ucits_ndx_etf()
     assert not etf.allow_short and not etf.pays_financing and etf.fx_mode == "price" and etf.lot_step == 1.0
     assert ucits_etf_costs().financing_markup == 0.0
+    with pytest.raises(ValueError):
+        pepperstone_costs("vip")
 
 
-def test_eu_api_broker_presets():
+def test_eu_broker_presets_match_the_supplied_schedules():
     from ndxswing.config import BROKER_PRESETS, broker_preset
 
-    assert BROKER_PRESETS == ("pepperstone_eu_ctrader", "capital_com_eu_rest", "ibkr_cfd", "ucits_etf")
+    assert BROKER_PRESETS == ("capital_com_eu_leveraged", "capital_com_eu_unleveraged_1to1",
+                              "pepperstone_eu_ctrader", "ibkr_cfd", "ucits_etf")
     pep = broker_preset("pepperstone_eu_ctrader", lot_reference_price=25_288.25)
-    assert (pep.instrument.lot_step, pep.instrument.min_lot, pep.instrument.multiplier) == (0.01, 0.01, 1.0)
-    assert (pep.costs.spread_points, pep.costs.commission_bps, pep.costs.commission_min) == (1.2, 0.0, 0.0)
-    assert (pep.costs.financing_markup, pep.costs.financing_day_count) == (0.025, 360)
-    assert broker_preset("pepperstone_eu_ctrader", lot_step=0.10).instrument.min_lot == 0.10
-    cap = broker_preset("capital_com_eu_rest")
-    assert (cap.instrument.lot_step, cap.instrument.min_lot) == (0.10, 0.10) and cap.costs == pep.costs
-    assert "0.001" in cap.note and "4.1%" in cap.note and "0.0035" in cap.note   # what the broker's page shows
-    with pytest.raises(ValueError):
-        broker_preset("oanda_eu_v20")                                            # no API for EU retail accounts
-    # the 0.10 lot clips a EUR 12.50 budget to zero for a 135 point stop; 0.35% is the smallest that carries it
+    assert (pep.instrument.lot_step, pep.instrument.min_lot, pep.instrument.multiplier) == (0.10, 0.10, 1.0)
+    assert (pep.costs.spread_points, pep.costs.commission_bps, pep.costs.commission_min) == (1.0, 0.0, 0.0)
+    assert (pep.costs.financing_markup, pep.costs.financing_day_count, pep.costs.fx_conversion_fee) == (0.025, 360, 0.0)
+
+    lev = broker_preset("capital_com_eu_leveraged")
+    assert (lev.instrument.lot_step, lev.instrument.min_lot, lev.instrument.multiplier) == (0.001, 0.001, 1.0)
+    assert (lev.costs.spread_points, lev.costs.commission_bps, lev.costs.commission_min) == (1.8, 0.0, 0.0)
+    assert (lev.costs.financing_markup, lev.costs.financing_day_count) == (0.040, 360)
+    assert lev.costs.financing_markup / 360 == pytest.approx(0.0001111, rel=1e-3)       # 0.01111% a day
+    assert lev.costs.fx_conversion_fee == 0.007 and lev.instrument.pays_financing
+    assert lev.instrument.max_leverage is None and lev.instrument.margin_rate == 0.05
+
+    one = broker_preset("capital_com_eu_unleveraged_1to1")
+    assert (one.instrument.lot_step, one.instrument.min_lot, one.costs.spread_points) == (0.001, 0.001, 1.8)
+    assert one.instrument.max_leverage == 1.0 and not one.instrument.pays_financing
+    assert one.costs.financing_markup == 0.0 and one.costs.fx_conversion_fee == 0.0
+    assert one.instrument.allow_short                                               # still a CFD
+
+    for gone in ("oanda_eu_v20", "capital_com_eu_rest", "micro_cfd"):
+        with pytest.raises(ValueError):
+            broker_preset(gone)
+
+
+def test_lot_size_decides_which_broker_can_carry_the_burn_in_budget():
+    from ndxswing.config import broker_preset
+
     st = AccountState(equity=5000.0, fx_quote_to_acct=0.93)
-    wide = proposal(d_stop=135.0, stop_price=24_865.0)
-    costs = cap.costs
-    assert isinstance(engine(inst=cap.instrument, costs=costs).approve(wide, st), RiskRejection)
-    ok = engine(StrategyParams(b_risk=0.0035), inst=cap.instrument, costs=costs).approve(wide, st)
-    assert ok.units == pytest.approx(0.10) and ok.planned_risk <= 17.5
-    assert isinstance(engine(StrategyParams(b_risk=0.0030), inst=cap.instrument, costs=costs).approve(wide, st),
+    wide = proposal(d_stop=135.0, stop_price=24_865.0)                               # ~1.5 ATR at index 25,000
+    pep, lev = broker_preset("pepperstone_eu_ctrader"), broker_preset("capital_com_eu_leveraged")
+    # 0.10 lot: EUR 12.50 is clipped to zero, EUR 17.50 carries exactly one lot
+    assert isinstance(engine(inst=pep.instrument, costs=pep.costs).approve(wide, st), RiskRejection)
+    assert isinstance(engine(StrategyParams(b_risk=0.0030), inst=pep.instrument, costs=pep.costs).approve(wide, st),
                       RiskRejection)
+    ok = engine(StrategyParams(b_risk=0.0035), inst=pep.instrument, costs=pep.costs).approve(wide, st)
+    assert ok.units == pytest.approx(0.10) and ok.planned_risk <= 17.5
+    # 0.001 lot: the burn-in budget is used almost in full
+    fine = engine(inst=lev.instrument, costs=lev.costs).approve(wide, st)
+    # 12.5 / (1.25 * 135 * 0.93 + 23,250 * (1.8 / 25,000 + 2 bp)) = 0.0766 -> 0.076
+    assert fine.units == pytest.approx(0.076) and 12.3 < fine.planned_risk <= 12.5
+
+
+def test_vehicle_leverage_cap_and_one_to_one_margin():
+    from ndxswing.config import broker_preset
+
+    st = AccountState(equity=5000.0, fx_quote_to_acct=1.0)
+    calm = proposal(d_stop=5.0, stop_price=24_995.0, sigma_1d=0.002)                  # exposure caps bind
+    lev = broker_preset("capital_com_eu_leveraged")
+    one = broker_preset("capital_com_eu_unleveraged_1to1")
+    r_lev = engine(inst=lev.instrument).approve(calm, st)
+    assert r_lev.binding == "max_leverage" and r_lev.leverage == pytest.approx(1.5, abs=0.01)
+    r_one = engine(inst=one.instrument).approve(calm, st)
+    assert r_one.leverage <= 0.5 + 1e-9 and r_one.binding == "margin"                 # full margin, 50% usage rule
+    # with the margin-usage rule out of the way the vehicle's own 1.0 cap is what binds
+    r_cap = engine(StrategyParams(margin_usage_cap=5.0), inst=one.instrument).approve(calm, st)
+    assert r_cap.binding == "max_leverage" and r_cap.leverage == pytest.approx(1.0, abs=0.01)
+    # the drawdown tier can only tighten it further
+    tier = engine(StrategyParams(margin_usage_cap=5.0), inst=one.instrument).approve(
+        calm, AccountState(5000.0, 1.0, leverage_cap=0.6))
+    assert tier.leverage <= 0.6 + 1e-9
 
 
 def test_rolling_five_day_loss_halves_risk():

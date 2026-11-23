@@ -3,7 +3,8 @@
 Sources
 -------
 * local CSV / Parquet files (bars, daily series, events, futures chains);
-* FRED (daily FX fixings and overnight rates): the JSON API when
+* FRED (daily FX fixings and overnight rates, with USD_RATE spliced from EFFR
+  into SOFR on 2018-04-03): the JSON API when
   ``FRED_API_KEY`` is set, otherwise the public keyless CSV download
   (``fred.stlouisfed.org/graph/fredgraph.csv?id=EFFR``);
 * Interactive Brokers historical bars through TWS / IB Gateway (``ib_async``
@@ -157,25 +158,46 @@ def ingest_fred(store: MarketDataStore, series_id: str, name: str, start: str = 
     return store.upsert_series(name, s * scale, source)
 
 
+SOFR_START = pd.Timestamp("2018-04-03")   # first SOFR publication
+
+
+def splice_usd_rate(effr: pd.Series, sofr: pd.Series, switch: pd.Timestamp = SOFR_START) -> pd.Series:
+    """USD overnight benchmark for CFD funding: EFFR before ``switch``, SOFR
+    from ``switch`` onward, falling back to EFFR on any date SOFR is missing."""
+    idx = effr.index.union(sofr.index)
+    e, s_ = effr.reindex(idx), sofr.reindex(idx)
+    out = e.where(idx < switch, s_.where(s_.notna(), e))
+    return out.dropna().rename("USD_RATE")
+
+
 def ingest_usd_macro(store: MarketDataStore, start: str = "2010-01-01") -> dict[str, dict]:
     """Everything the backtest needs besides price bars and the event
     calendar, in one call and without a key:
 
     EFFR      effective federal funds rate, decimal p.a.
-    SOFR      secured overnight financing rate, decimal p.a. (starts April 2018)
-    USD_RATE  the benchmark used for CFD financing = EFFR, the only one of the
-              two that covers a 2012 start; SOFR and EFFR differ by a few
-              basis points
+    SOFR      secured overnight financing rate, decimal p.a. (from 2018-04-03)
+    USD_RATE  the benchmark used for CFD funding: EFFR before 2018-04-03,
+              SOFR from then on, EFFR on any date SOFR is missing
     EURUSD    USD per EUR, the daily noon fixing (DEXUSEU)
     """
     out: dict[str, dict] = {}
-    for sid, names, scale in (("EFFR", ("EFFR", "USD_RATE"), 0.01), ("SOFR", ("SOFR",), 0.01),
-                              ("DEXUSEU", ("EURUSD",), 1.0)):
-        s, source = fetch_fred(sid, start)
-        for name in names:
-            store.upsert_series(name, s * scale, source)
-            out[name] = {"rows": int(len(s)), "first": str(s.index[0].date()), "last": str(s.index[-1].date()),
-                         "last_value": float(s.iloc[-1] * scale), "source": source}
+
+    def put(name: str, s: pd.Series, source: str) -> None:
+        store.upsert_series(name, s, source)
+        out[name] = {"rows": int(len(s)), "first": str(s.index[0].date()), "last": str(s.index[-1].date()),
+                     "last_value": float(s.iloc[-1]), "source": source}
+
+    effr, src_e = fetch_fred("EFFR", start)
+    sofr, src_s = fetch_fred("SOFR", start)
+    fx, src_x = fetch_fred("DEXUSEU", start)
+    effr, sofr = effr * 0.01, sofr * 0.01
+    put("EFFR", effr, src_e)
+    put("SOFR", sofr, src_s)
+    usd = splice_usd_rate(effr, sofr)
+    put("USD_RATE", usd, f"splice: {src_e} before {SOFR_START.date()}, {src_s} after (EFFR where SOFR is missing)")
+    out["USD_RATE"]["sofr_days"] = int((usd.index >= SOFR_START).sum())
+    out["USD_RATE"]["effr_fallback_days"] = int(((usd.index >= SOFR_START) & ~usd.index.isin(sofr.index)).sum())
+    put("EURUSD", fx, src_x)
     return out
 
 

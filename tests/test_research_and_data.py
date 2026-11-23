@@ -320,10 +320,28 @@ def test_keyless_fred_csv_and_macro_ingest(monkeypatch, tmp_path):
     with MarketDataStore(tmp_path / "macro.duckdb") as store:
         info = ing.ingest_usd_macro(store, "2024-01-01")
         assert set(info) == {"EFFR", "USD_RATE", "SOFR", "EURUSD"}
-        assert store.load_series("USD_RATE").iloc[0] == pytest.approx(0.0533)             # percent -> decimal
+        usd = store.load_series("USD_RATE")
+        assert store.load_series("EFFR").iloc[0] == pytest.approx(0.0533)                 # percent -> decimal
         assert store.load_series("SOFR").iloc[-1] == pytest.approx(0.0539)
+        # after the switch date the benchmark is SOFR, and EFFR on a day SOFR is missing
+        assert usd.loc["2024-01-02"] == pytest.approx(0.0540) and usd.loc["2024-01-03"] == pytest.approx(0.0539)
+        assert usd.loc["2024-01-16"] == pytest.approx(0.0533) and pd.Timestamp("2024-01-15") not in usd.index
+        assert info["USD_RATE"]["effr_fallback_days"] == 1 and info["USD_RATE"]["sofr_days"] == 3
         assert store.load_series("EURUSD").iloc[0] == pytest.approx(1.0956)
         assert "public CSV" in info["USD_RATE"]["source"]
+
+
+def test_usd_rate_splice_switches_on_the_first_sofr_date():
+    d = pd.to_datetime(["2018-03-29", "2018-04-02", "2018-04-03", "2018-04-04", "2018-04-05", "2018-04-06"])
+    effr = pd.Series([0.0168, 0.0168, 0.0169, 0.0169, 0.0169, 0.0169], index=d)
+    sofr = pd.Series([0.0150, 0.0183, 0.0174, 0.0175], index=d[[1, 2, 3, 5]])    # a stray early print, one gap
+    usd = ing.splice_usd_rate(effr, sofr)
+    assert ing.SOFR_START == pd.Timestamp("2018-04-03")
+    assert list(usd.round(4)) == [0.0168, 0.0168, 0.0183, 0.0174, 0.0169, 0.0175]
+    #                             EFFR    EFFR    SOFR    SOFR    EFFR*   SOFR     (*SOFR missing that day)
+    assert usd.index.equals(d) and usd.name == "USD_RATE"
+    only_sofr_day = pd.Series([0.02], index=pd.to_datetime(["2020-01-01"]))
+    assert ing.splice_usd_rate(effr, only_sofr_day).loc["2020-01-01"] == 0.02      # SOFR-only dates are kept
 
 
 def test_panama_adjustment_removes_roll_gap_and_keeps_raw_prices():

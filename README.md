@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-111 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
+116 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
 state machine, Monte Carlo / brute-force references for the statistics, and look-ahead checks that
 recompute features and signals on truncated history.
 
@@ -47,10 +47,11 @@ recompute features and signals on truncated history.
 ndxswing ingest bars --db data/market.duckdb --file ndx_1h.parquet --symbol NDX --tz America/New_York --source "IBKR TRADES RTH" --bid-col bid --ask-col ask
 ```
 
-2. Load EURUSD and the USD overnight rates for CFD financing. One call, no API key: it reads
-   FRED's public CSV download (EFFR, SOFR, and DEXUSEU for EURUSD) and stores `USD_RATE` = EFFR,
-   the only one of the two rates that covers a 2012 start. With `FRED_API_KEY` set the JSON API is
-   used instead. This step was run live from the build environment (data to November 2026).
+2. Load EURUSD and the USD overnight rates for CFD funding. One call, no API key: it reads
+   FRED's public CSV download (EFFR, SOFR, and DEXUSEU for EURUSD) and stores `USD_RATE` as EFFR
+   before 2018-04-03 and SOFR from that date on, with EFFR on any day SOFR is missing. With
+   `FRED_API_KEY` set the JSON API is used instead. This step was run live from the build
+   environment (data to November 2026).
 
 ```bash
 ndxswing ingest macro --db data/market.duckdb
@@ -86,21 +87,33 @@ Other commands: `ndxswing summary`, `ndxswing backtest`, `ndxswing ingest ibkr|f
 
 A EUR 5,000 account needs a fractional index CFD and, for automation, a programmatic API. That
 rules out IBKR (IBUST100 trades whole units) and OANDA (its v20 REST API documentation excludes the
-EU entity, OANDA TMS Brokers S.A.).
+EU entity, OANDA TMS Brokers S.A.). The CFD figures below are the EU schedules supplied for this
+project; the last column says what I could cross-check on public pages.
 
-| Preset | Lot rule | Costs | Status of the numbers |
+| Preset | Lot rule | Costs | Cross-check |
 |---|---|---|---|
-| `pepperstone_eu_ctrader` (default) | USD 1 per point per lot, minimum and step 0.01 (`--lot-step 0.1` for the coarser rule) | 1.2 pt spread, no index commission, overnight rate ± 2.5% (ACT/360) | Supplied schedule, **not confirmed**. Pepperstone states no commission on index CFDs and advertises spreads from about 1.0 pt. The only minimum-size figure I found, on a third-party page, says 0.1 lot: check the cTrader symbol specification |
-| `capital_com_eu_rest` | USD 1 per point per contract, minimum and step 0.10 | 1.2 pt spread, no commission, overnight rate ± 2.5% | Supplied schedule, **contradicted on two points by Capital.com's own EU market page**, which lists a minimum quantity of 0.001 and a long overnight charge of 0.02226% of position value a day, about 8.0% a year or the overnight rate + 4.1%. To model the page: `--lot-step 0.001 --financing-markup 0.041` |
-| `ibkr_cfd` | IBUST100, whole units only | 0.010% (min USD 1.00), benchmark ± 1.5%, 1.0 pt spread assumed | Commission, minimum, multiplier and financing spread checked against IBKR's schedule (Nov 2026). Sizes to zero on EUR 5,000 |
+| `capital_com_eu_leveraged` (default) | USD 1 per point per contract, minimum and step 0.001 | 1.8 pt spread, no commission, SOFR ± 4.0% on ACT/360 (0.01111% a day admin fee), 0.7% conversion mark-up on realised P&L and funding for a EUR account | Minimum 0.001, the 0.01111% daily fee with SOFR and the 0.7% retail conversion mark-up all match Capital.com's pages. The spread is a live quote and will move. A REST and WebSocket API is documented officially; that EU accounts can use it is stated by a third-party review, and I found no official EU statement |
+| `capital_com_eu_unleveraged_1to1` | as above | 1.8 pt spread, no commission, no overnight funding, no conversion mark-up (USD sub-account), gross exposure ≤ 1.0× equity | Capital.com states that 1:1 positions on most markets carry no overnight funding. See the two caveats below |
+| `pepperstone_eu_ctrader` | USD 1 per point per lot, minimum and step 0.10 | 1.0 pt spread on Razor (`--spread-points 1.2` for Standard), no index commission, overnight rate ± 2.5% on ACT/360 | No index commission is stated by Pepperstone; "from about 1.0 pt" is its advertised spread; 0.1 lot matches the one third-party figure found |
+| `ibkr_cfd` | IBUST100, whole units only | 0.010% (min USD 1.00), benchmark ± 1.5%, 1.0 pt spread assumed | Commission, minimum, multiplier and financing spread checked against IBKR's schedule. Sizes to zero on EUR 5,000 |
 | `ucits_etf` | whole shares, long only, EUR-quoted and unhedged | 6 bp spread, 2 bp slippage, EUR 1 ticket, no financing | Assumptions; set `--etf-price-ratio` for the actual share class |
 
 Every cost field can be overridden (`--spread-points`, `--spread-bps`, `--slippage-bps`,
-`--commission-bps`, `--commission-min`, `--financing-markup`), and `--b-risk` sets the risk per
-trade (default 0.0025). With a 0.10 lot, 0.25% risk is clipped to zero for a typical stop;
-`--b-risk 0.0035` is the smallest budget that carries a 135-point stop, and in the synthetic run it
-still left about a third of signals below the minimum lot. The CLI warns when the lot size, rather
-than the strategy, is deciding what trades.
+`--commission-bps`, `--commission-min`, `--financing-markup`, `--fx-conversion-fee`), and
+`--b-risk` sets the risk per trade (default 0.0025). The CLI warns when the lot size, rather than
+the strategy, is deciding what trades.
+
+Three things follow from the corrected schedules:
+
+- **Capital.com is the only CFD preset that can carry the EUR 12.50 burn-in budget.** With a 0.10
+  lot, a typical 135-point stop risks about EUR 15.70, so Pepperstone sizes most signals to zero
+  below roughly 0.35–0.50% risk. That is why the default preset changed.
+- **The leveraged preset assumes a EUR account**, so the 0.7% conversion mark-up is on by default.
+  Pass `--fx-conversion-fee 0` for a USD sub-account.
+- **The 1:1 preset is tighter than its name suggests, and one thing about it is not modelled.**
+  A 1:1 position posts its full notional as margin, so the sizing rule that caps margin use at
+  50% of equity limits exposure to 0.5× equity, below the 1.0× vehicle cap. And a USD sub-account
+  means the cash balance itself moves with EURUSD; the simulation still books equity in EUR.
 
 **Lot rules are normalised to one index level** (`--lot-reference-price`, default `last` = the final
 close). One lot is then the same notional throughout history. Without this, a 2012 backtest at
@@ -163,7 +176,7 @@ improves by at least 0.05, Calmar does not fall and the trade count stays above 
 Because these decisions look at OOS data, the OOS curve of every variant examined is one of the K
 configurations compared, and `--holdout-start` reserves a period no decision ever sees.
 
-### Release gates
+### Release gates (locked)
 
 | Gate | Rule | Notes |
 |---|---|---|
@@ -181,17 +194,19 @@ configurations compared, and `--holdout-start` reserves a period no decision eve
 The DSR with the cross-trial mean in its benchmark and the probabilistic Sharpe ratio against zero
 are printed next to the gate as information only.
 
-Two readings of the calibration that are stricter than a literal one, both on purpose:
+These gates are locked. Two readings of the calibration are stricter than a literal one, both on
+purpose:
 
 - **K counts module variants even when no parameter is tuned.** Choosing among fifteen ablation
-  variants is selection. On the synthetic control this gives N_eff = 6.1 and a DSR of 0.968; with
+  variants is selection. On the synthetic control this gives N_eff = 6.0 and a DSR of 0.959; with
   N_eff forced to 1 it would be 0.999.
 - **P(OOS loss) is gated whenever K ≥ 2**, not only when parameters are tuned.
 
 And one that is narrower: the rank statistic is computed over parameter draws of the released
 configuration only. Module variants are a heterogeneous set in which a three-trade variant can be
-the in-sample "best"; over that set the control scored 0.73 with an IQR of 0.26, a hair over the
-0.25 cut-off, and would have failed on a technicality.
+the in-sample "best"; over that set, in an earlier run on the previous cost schedule, the control
+scored 0.73 with an IQR of 0.26, a hair over the 0.25 cut-off, and would have failed on a
+technicality.
 
 ### Drawdown breakers
 
@@ -244,11 +259,12 @@ tearsheet refuses to issue a release verdict for synthetic data.
    sizing decision.
 2. **Interactive Brokers cannot carry this system on EUR 5,000.** IBUST100 trades in whole units of
    1 × index. At 25,288 that is about USD 25,300, some 4.7 times the account, so the 1.5× leverage
-   cap sizes every order to zero. The execution adapter has to target a micro-lot CFD API
-   (cTrader Open API or Capital.com REST) or a cash ETF broker, not the planned IBKR gateway.
+   cap sizes every order to zero. The execution adapter has to target Capital.com's REST and
+   WebSocket API (or cTrader for Pepperstone once the risk budget allows a 0.10 lot) or a cash
+   ETF broker, not the planned IBKR gateway.
 3. **A 0.1 lot is too coarse for the EUR 12.50 burn-in budget.** With a 135-point stop and the
-   1.25× gap buffer, 0.1 units risks about EUR 15.70. It fits EUR 25.00; a 0.01 lot fits both. The
-   preset default is therefore 0.01.
+   1.25× gap buffer, 0.1 units risks about EUR 15.70. It fits EUR 25.00; a 0.001 lot fits any
+   budget. Pepperstone's 0.10 minimum therefore rules it out for the burn-in phase.
 4. **The ETF route is viable after all.** My earlier note that a Xetra listing overlaps the US
    session for only two hours is out of date: since 1 December 2025 Xetra's extended retail service
    runs 08:00–22:00 for all listed ETFs, for retail orders only and only through participating
@@ -258,19 +274,24 @@ tearsheet refuses to issue a release verdict for synthetic data.
    forecast Sharpe near 3, which daily ARMA means do not reach. DFA on 1,500 hourly returns has a
    sampling error near 0.045, so a lower bound above 0.50 needs a point estimate near 0.58. Both
    are off in the baseline and are evaluated last, as challengers. On the synthetic trend data the
-   specification gate left 3 trades in about ten years and the point-estimate version 26.
-6. **Costs per trade decide the vehicle.** In the synthetic runs a CFD trade cost about EUR 0.70
-   (spread, slippage and financing, the last being more than half), around 0.06R at EUR 12.50 risk.
-   The ETF pays no financing, but a EUR 1 ticket on each leg is EUR 2 a round trip, 0.16R on its
-   own. At this account size the ETF only wins with a near-zero ticket fee.
-7. **What the recalibrated gates do, measured on synthetic histories.** Fixed-prior baseline, 40
-   independent histories each, complete battery: with no edge, 0 of 40 pass (which bounds the
-   false-positive rate below about 7.5% at 95% confidence); with the planted edge (median OOS Sharpe
-   0.93), 22 of 40 pass. So a real edge of that size has roughly even odds of being confirmed on
-   ten OOS years at about 18 trades a year, and a weaker one will usually be rejected. The gates
-   that reject it are the profitable-folds share and the Sharpe floor, not the overfitting tests.
-   The fold and trade thresholds were set after seeing the control land at 69% and 189, so they
-   are fitted to this trade frequency; the no-edge result is what shows they did not open the door.
+   specification gate left 3 trades in about ten years and the point-estimate version 27.
+6. **Costs per trade decide the vehicle, and funding is the largest of them.** In the synthetic
+   run at EUR 12.50 risk, a leveraged Capital.com trade in a EUR account cost about EUR 1.17:
+   funding 58%, spread and slippage 29%, conversion mark-up 13%. That is roughly 0.09R a trade.
+   The 1:1 version cost about EUR 0.33, because it pays no funding and no conversion mark-up, and
+   at this risk budget it gives up no size: average exposure was 0.28× equity, well inside its
+   0.5× limit. The limit starts to bind at 0.50% risk. The ETF pays no funding either, but a
+   EUR 1 ticket on each leg is EUR 2 a round trip, 0.16R on its own.
+7. **What the locked gates do, measured on synthetic histories.** Fixed-prior baseline on the
+   leveraged Capital.com preset, 40 independent histories each, complete battery: with no edge,
+   0 of 40 pass (which bounds the false-positive rate below about 7.5% at 95% confidence); with
+   the planted edge (median OOS Sharpe 0.86), 17 of 40 pass. So a real edge of that size has
+   somewhat less than even odds of being confirmed on ten OOS years at about 18 trades a year,
+   and a weaker one will usually be rejected. The gates that reject it are the profitable-folds
+   share and the Sharpe floor, not the overfitting tests. The fold and trade thresholds were set
+   after seeing the control land at 69% and 189, so they are fitted to this trade frequency; the
+   no-edge result is what shows they did not open the door. With the cheaper schedule assumed
+   before the broker corrections, 22 of 40 passed: costs move the answer.
 
 On the suggestion to score parameters on train plus validation: I dropped it in favour of the
 longer validation window. One nuance for the record: in this implementation the statistical models
@@ -284,6 +305,9 @@ Sources for the broker and venue facts:
 [Deutsche Börse, Extended Xetra Retail Service](https://cashmarket.deutsche-boerse.com/cash-en/Data-Tech/Initiatives-Releases/extended-xetra-retail-service),
 [OANDA v20 REST API, getting started](https://developer.oanda.com/rest-live-v20/introduction/),
 [Capital.com US Tech 100, EU page](https://capital.com/en-eu/markets/indices/us-tech-100-index),
+[Capital.com charges and fees](https://capital.com/charges-and-fees),
+[Capital.com public API](https://open-api.capital.com/),
+[Capital.com API from Germany (third-party review)](https://brokerchooser.com/broker-reviews/capitalcom-review/capitalcom-api-algorithmic-trading-from-germany),
 [Pepperstone index CFDs](https://pepperstone.com/global/trading/instruments/index-cfds).
 
 ## Not in this deliverable
