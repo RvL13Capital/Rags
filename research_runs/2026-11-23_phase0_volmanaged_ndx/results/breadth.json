@@ -1,0 +1,52 @@
+{
+ "4 US indices, weekly": {
+  "n_indices": 4,
+  "observations": 551,
+  "from": "2015-01-09",
+  "to": "2025-07-25",
+  "participation_ratio": 1.18,
+  "mean_correlation": 0.895,
+  "min_correlation": 0.861,
+  "first_eigenvalue_share": 0.921
+ },
+ "6 indices (US + emerging markets + Brazil), weekly": {
+  "n_indices": 6,
+  "observations": 551,
+  "from": "2015-01-09",
+  "to": "2025-07-25",
+  "participation_ratio": 1.51,
+  "mean_correlation": 0.757,
+  "min_correlation": 0.526,
+  "first_eigenvalue_share": 0.804
+ },
+ "7 indices incl. China (to February 2022), weekly": {
+  "n_indices": 7,
+  "observations": 371,
+  "from": "2015-01-09",
+  "to": "2022-02-11",
+  "participation_ratio": 1.59,
+  "mean_correlation": 0.74,
+  "min_correlation": 0.521,
+  "first_eigenvalue_share": 0.784
+ },
+ "6 indices, monthly": {
+  "n_indices": 6,
+  "observations": 126,
+  "from": "2015-02-28",
+  "to": "2025-07-31",
+  "participation_ratio": 1.47,
+  "mean_correlation": 0.767,
+  "min_correlation": 0.464,
+  "first_eigenvalue_share": 0.816
+ },
+ "6 indices, weekly, levels of log volatility": {
+  "n_indices": 6,
+  "observations": 552,
+  "from": "2015-01-02",
+  "to": "2025-07-25",
+  "participation_ratio": 1.38,
+  "mean_correlation": 0.811,
+  "min_correlation": 0.599,
+  "first_eigenvalue_share": 0.846
+ }
+}

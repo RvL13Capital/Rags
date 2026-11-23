@@ -32,6 +32,16 @@ distinct series and N_eff = 12.38. Per run, N_eff is 3.1 to 3.3.
 Not counted: the post-hoc slices of the final ledgers (long against short, by year, by fill
 type). They selected nothing, but any rule built from them starts from this record.
 
+## Phase 0 on the same sample (volatility-managed passive exposure)
+
+`research_runs/2026-11-23_phase0_volmanaged_ndx/` examined sixteen further configurations on the
+spent NASDAQ-100 sample: one pre-declared primary, twelve planned sensitivities and three
+thresholds of an unplanned in-or-out filter. They are not ablation variants of the breakout system
+and have no N_eff computed here. The phase ended in a final NO-GO under its pre-declared rule and
+the hypothesis is archived. Should any of these configurations nevertheless be taken to untouched markets later, the
+pre-registration must add them to the 11.71 above: as a floor, one further effective trial for the
+planned family and one for the unplanned filter.
+
 ## How it enters the DSR
 
 ```bash
