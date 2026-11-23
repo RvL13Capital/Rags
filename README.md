@@ -34,18 +34,50 @@ pip install -e ".[dev]"
 pytest
 ```
 
-120 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
+134 tests, about 50 seconds. They cover hand-computed fills and P&L for every branch of the order
 state machine, Monte Carlo / brute-force references for the statistics, and look-ahead checks that
 recompute features and signals on truncated history.
 
 ## Running it on real data
 
-1. Load regular-session 1-hour bars (timestamp = bar start). Quotes are optional; with bid/ask
-   columns the relative spread is stored per bar and used for fills and the spread gate.
+1. Load price bars. The simulator needs regular-session bars anchored at the 09:30 ET open: a
+   30-minute opening bar, then hourly bars, seven per full session. Which command to use depends
+   on what the source delivers.
+
+   **Finer intraday bars (1 to 30 minutes), including round-the-clock CFD or futures feeds.**
+   `ingest intraday` keeps NYSE cash sessions only (holidays and the hours after an early close are
+   dropped), builds the 09:30-anchored bars and prints what it dropped. Bid and ask may come as
+   two files; they are merged into mid prices with the quoted spread.
+
+```bash
+ndxswing ingest intraday --db data/market.duckdb --bid-file us100_bid_m1.parquet --ask-file us100_ask_m1.parquet --symbol NDX --source "vendor 1m bid/ask"
+```
+
+```bash
+ndxswing ingest intraday --db data/market.duckdb --file ndx_1m.parquet --symbol NDX --tz UTC --source "vendor 1m"
+```
+
+   **Do not load clock-hour bars.** A 09:00–10:00 bar straddles the open, so the session filter
+   drops it and every session starts at 10:00 with six bars; the opening price that the
+   anti-chase rule and the overnight gap are measured against is lost. `ingest intraday` refuses
+   such input. After any load, `bars_per_session_mode` in the printed report must be 7.
+
+   **Bars that are already session-anchored** (for example IBKR regular-hours 1-hour bars, which
+   start at 09:30) load directly:
 
 ```bash
 ndxswing ingest bars --db data/market.duckdb --file ndx_1h.parquet --symbol NDX --tz America/New_York --source "IBKR TRADES RTH" --bid-col bid --ask-col ask
 ```
+
+   **Futures contracts** go through `ingest futures` and `ingest panama`; add `--resample` to the
+   latter when the contract bars are finer than an hour.
+
+   Things the report tells you and you should read: holiday dates dropped, sessions with no data,
+   sessions missing the opening bar, incomplete bars, and suspected price-scale breaks (a close
+   more than three times, or less than a third of, the previous one). A scale break in early
+   history can be repaired on load with `--price-scale-before DATE --price-scale FACTOR`. The
+   session calendar comes from the `exchange_calendars` package when installed
+   (`pip install -e ".[calendar]"`); otherwise from built-in rules that match it for 2012–2026.
 
 2. Load EURUSD and the USD overnight rates for CFD funding. One call, no API key: it reads
    FRED's public CSV download (EFFR, SOFR, and DEXUSEU for EURUSD) and stores `USD_RATE` as EFFR

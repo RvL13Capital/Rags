@@ -2,7 +2,9 @@
 
 Sources
 -------
-* local CSV / Parquet files (bars, daily series, events, futures chains);
+* local CSV / Parquet files (bars, daily series, events, futures chains),
+  including finer intraday bars and separate bid / ask files, which are
+  merged and resampled to 09:30-anchored regular-session bars;
 * FRED (daily FX fixings and overnight rates, with USD_RATE spliced from EFFR
   into SOFR on 2018-04-03): the JSON API when
   ``FRED_API_KEY`` is set, otherwise the public keyless CSV download
@@ -48,7 +50,7 @@ def normalise_bars(df: pd.DataFrame, ts_col: str = "ts", tz: str = "UTC", bid_co
     """Rename common vendor columns, localise the timestamp (bar START) and
     derive ``spread_rel`` = (ask - bid) / mid when quotes are supplied."""
     d = df.rename(columns={c: c.strip().lower() for c in df.columns})
-    alias = {"date": "ts", "datetime": "ts", "time": "ts", "timestamp": "ts", "vol": "volume"}
+    alias = {"date": "ts", "datetime": "ts", "time": "ts", "timestamp": "ts", "ts_event": "ts", "vol": "volume"}
     d = d.rename(columns={k: v for k, v in alias.items() if k in d.columns and v not in d.columns})
     ts_col = ts_col.lower()
     if ts_col not in d:
@@ -56,7 +58,14 @@ def normalise_bars(df: pd.DataFrame, ts_col: str = "ts", tz: str = "UTC", bid_co
             d[ts_col] = df.index
         else:
             raise ValueError(f"timestamp column {ts_col!r} not found; columns: {list(d.columns)}")
-    ts = pd.DatetimeIndex(pd.to_datetime(d[ts_col]))
+    raw = d[ts_col]
+    if pd.api.types.is_numeric_dtype(raw):
+        # epoch timestamps: the unit is read off the magnitude (seconds ~1e9 ... nanoseconds ~1e18)
+        mag = float(np.nanmedian(np.abs(raw.to_numpy(dtype=float))))
+        unit = "s" if mag < 1e11 else "ms" if mag < 1e14 else "us" if mag < 1e17 else "ns"
+        ts = pd.DatetimeIndex(pd.to_datetime(raw.to_numpy(), unit=unit, utc=True))
+    else:
+        ts = pd.DatetimeIndex(pd.to_datetime(raw))
     ts = ts.tz_localize(tz, ambiguous="infer", nonexistent="shift_forward") if ts.tz is None else ts
     d.index = ts.tz_convert("UTC").rename("ts")
     if "volume" not in d:
@@ -73,6 +82,174 @@ def normalise_bars(df: pd.DataFrame, ts_col: str = "ts", tz: str = "UTC", bid_co
 
 def ingest_bars_file(store: MarketDataStore, path: str, symbol: str, source: str, **kw: object) -> int:
     return store.upsert_hourly(symbol, normalise_bars(read_table(path), **kw), source)
+
+
+# --------------------------------------------------------------------------- #
+# Intraday sources: bid/ask merge and 09:30-anchored session bars
+# --------------------------------------------------------------------------- #
+
+SESSION_OPEN_MIN = 9 * 60 + 30
+
+
+def merge_bid_ask(bid: pd.DataFrame, ask: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Mid-price bars and the quoted spread from separate bid and ask bars
+    (the layout CFD data vendors export).
+
+    Mid OHLC is the average of the bid and ask OHLC, bar by bar (for high and
+    low this is the usual approximation: the two extremes need not coincide).
+    ``spread_rel`` = (ask close - bid close) / mid close.  Volume is the mean
+    of the two sides.  Bars present on one side only are dropped and counted.
+    """
+    cols = ["open", "high", "low", "close"]
+    j = bid[cols + ["volume"]].join(ask[cols + ["volume"]], how="inner", lsuffix="_b", rsuffix="_a")
+    out = pd.DataFrame({c: 0.5 * (j[f"{c}_b"] + j[f"{c}_a"]) for c in cols}, index=j.index)
+    out["volume"] = 0.5 * (j["volume_b"] + j["volume_a"])
+    spread = (j["close_a"] - j["close_b"]) / out["close"]
+    crossed = spread <= 0
+    out["spread_rel"] = spread.where(~crossed)
+    info = {"bid_rows": int(len(bid)), "ask_rows": int(len(ask)), "matched_rows": int(len(j)),
+            "unmatched_rows": int(len(bid) + len(ask) - 2 * len(j)), "crossed_or_zero_spread_rows": int(crossed.sum()),
+            "median_spread_bps": float(out["spread_rel"].median() * 1e4) if len(j) else float("nan")}
+    return out.sort_index(), info
+
+
+def suspected_scale_breaks(bars: pd.DataFrame) -> list[dict]:
+    """Bars whose close differs from the previous close by more than a factor
+    of three - the signature of a change in a vendor's price scaling (for
+    example an index quoted with a different number of decimals in early
+    history), never of a real hourly move."""
+    c = bars["close"]
+    ratio = (c / c.shift(1)).dropna()
+    hits = ratio[(ratio > 3.0) | (ratio < 1.0 / 3.0)]
+    return [{"ts": str(t), "ratio": float(r)} for t, r in hits.items()]
+
+
+def rescale_before(bars: pd.DataFrame, before: str, factor: float) -> pd.DataFrame:
+    """Multiply prices of all bars that start before ``before`` (UTC) by ``factor``."""
+    out = bars.copy()
+    m = out.index < pd.Timestamp(before, tz="UTC")
+    for c in ("open", "high", "low", "close", "raw_close"):
+        if c in out:
+            out.loc[m, c] = out.loc[m, c] * factor
+    return out
+
+
+def resample_to_session_bars(bars: pd.DataFrame, calendar: object = None,
+                             keep_holidays: bool = False) -> tuple[pd.DataFrame, dict]:
+    """Build regular-session bars anchored at the 09:30 ET open from finer
+    intraday bars (1, 5, 10, 15 or 30 minutes; index = bar start, UTC).
+
+    Output bars start at 09:30, 10:00, 11:00, ... 15:00 New York time: a
+    30-minute opening bar followed by hourly bars, seven per full session,
+    which is the layout the simulator and the IBKR regular-hours feed use.
+
+    Clock-hour bars cannot be used: the 09:00-10:00 bar straddles the open,
+    so the session would start at 10:00 and lose the opening price that the
+    anti-chase rule and the overnight gap are measured against.
+
+    Only cash sessions are kept: bars on NYSE holidays and after an early
+    close are dropped unless ``keep_holidays`` is set.  ``spread_rel`` is
+    aggregated by its median, ``raw_close`` by its last value.
+    """
+    from ..features.indicators import NY
+    from .sessions import REGULAR_CLOSE_MIN, nyse_calendar
+
+    need = ["open", "high", "low", "close", "volume"]
+    if any(c not in bars for c in need) or len(bars) < 2:
+        raise ValueError("intraday bars need open, high, low, close, volume and at least two rows")
+    df = bars[~bars.index.duplicated(keep="last")].sort_index()
+    local = df.index.tz_convert(NY)
+    step = pd.Series(df.index[1:] - df.index[:-1]).dt.total_seconds().div(60.0)
+    freq = float(step.mode().iloc[0])
+    if freq > 30 or freq <= 0 or 30 % freq != 0:
+        raise ValueError(
+            f"source bars are {freq:g} minutes long: a 09:30-anchored session needs bars of 1, 2, 3, 5, 6, 10, 15 or "
+            "30 minutes. Clock-hour bars straddle the 09:30 open; export 1-minute or 30-minute data instead.")
+    minute = pd.Series(local.hour * 60 + local.minute, index=df.index)
+    if ((minute % freq) != 0).mean() > 0.01:
+        raise ValueError(f"bar starts are not aligned to the {freq:g}-minute grid")
+    date = pd.Series(local.tz_localize(None).normalize(), index=df.index)
+
+    weekday = pd.Series(local.dayofweek < 5, index=df.index)
+    in_day = weekday & (minute >= SESSION_OPEN_MIN) & (minute < REGULAR_CLOSE_MIN)
+    dates_with_data = pd.DatetimeIndex(sorted(date[in_day].unique()))
+    info: dict = {"source_minutes": freq, "source_rows": int(len(df)), "calendar": "none (holidays kept)"}
+    close_min = pd.Series(REGULAR_CLOSE_MIN, index=dates_with_data)
+    if not keep_holidays and len(dates_with_data):
+        cal = calendar or nyse_calendar(str(dates_with_data[0].date()), str(dates_with_data[-1].date()))
+        holidays = dates_with_data.difference(cal.sessions)
+        close_min = cal.close_minute
+        info |= {"calendar": cal.source, "holiday_dates_dropped": int(len(holidays)),
+                 "holiday_dates_dropped_first": [str(d.date()) for d in holidays[:5]],
+                 "sessions_without_data": int(len(cal.sessions.difference(dates_with_data))),
+                 "early_close_sessions": int((cal.close_minute.reindex(dates_with_data).dropna() < REGULAR_CLOSE_MIN).sum())}
+    limit = date.map(close_min)                       # NaN on a non-session date -> dropped
+    keep = in_day & (minute < limit)
+    df, minute, date = df[keep], minute[keep], date[keep]
+    if df.empty:
+        raise ValueError("no regular-session bars found (check the time zone of the timestamps)")
+
+    bucket = minute.where(minute < 600, (minute // 60) * 60).astype(int)
+    bucket[minute < 600] = SESSION_OPEN_MIN
+    agg = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
+    if "spread_rel" in df:
+        agg["spread_rel"] = "median"
+    if "raw_close" in df:
+        agg["raw_close"] = "last"
+    g = df.groupby([date.rename("date"), bucket.rename("bucket")], sort=True)
+    out = g.agg(agg)
+    n_src = g.size()
+    d_idx = out.index.get_level_values("date")
+    b_idx = out.index.get_level_values("bucket").to_numpy()
+    end = pd.Series(d_idx).map(close_min).to_numpy(dtype=float)
+    end = (b_idx + 60 - (b_idx % 60)).clip(max=end)   # 09:30 -> 10:00, 10:00 -> 11:00, capped at the close
+    expected = (end - b_idx) / freq
+    out.index = (pd.DatetimeIndex(d_idx) + pd.to_timedelta(b_idx, unit="m")).tz_localize(NY).tz_convert("UTC").rename("ts")
+
+    per_day = pd.Series(1, index=d_idx).groupby(level=0).sum()
+    has_open = pd.Series(b_idx == SESSION_OPEN_MIN, index=d_idx).groupby(level=0).any()
+    info |= {
+        "session_rows_used": int(len(df)), "bars": int(len(out)), "sessions": int(per_day.size),
+        "first": str(out.index[0]), "last": str(out.index[-1]),
+        "bars_per_session_mode": int(per_day.mode().iloc[0]),
+        "sessions_missing_open_bar": int((~has_open).sum()),
+        "incomplete_bars": int((n_src.to_numpy() < expected - 1e-9).sum()),
+        "incomplete_bar_share": float((n_src.to_numpy() < expected - 1e-9).mean()),
+    }
+    return out, info
+
+
+def load_intraday(path: str | None = None, bid_path: str | None = None, ask_path: str | None = None,
+                  ts_col: str = "ts", tz: str = "UTC", bid_col: str | None = None,
+                  ask_col: str | None = None) -> tuple[pd.DataFrame, dict]:
+    """One price file (optionally with bid/ask columns) or a bid file plus an ask file."""
+    if (path is None) == (bid_path is None or ask_path is None):
+        raise ValueError("pass either --file, or both --bid-file and --ask-file")
+    if path is not None:
+        return normalise_bars(read_table(path), ts_col=ts_col, tz=tz, bid_col=bid_col, ask_col=ask_col), {}
+    bid = normalise_bars(read_table(bid_path), ts_col=ts_col, tz=tz)
+    ask = normalise_bars(read_table(ask_path), ts_col=ts_col, tz=tz)
+    return merge_bid_ask(bid, ask)
+
+
+def ingest_intraday(store: MarketDataStore, symbol: str, source: str, path: str | None = None,
+                    bid_path: str | None = None, ask_path: str | None = None, ts_col: str = "ts", tz: str = "UTC",
+                    bid_col: str | None = None, ask_col: str | None = None, keep_holidays: bool = False,
+                    scale_before: str | None = None, scale_factor: float = 1.0) -> dict:
+    """Finer intraday bars -> merged quotes -> optional rescale -> 09:30-anchored
+    session bars -> store.  Returns a report of everything that was dropped."""
+    fine, merge_info = load_intraday(path, bid_path, ask_path, ts_col, tz, bid_col, ask_col)
+    if scale_before is not None:
+        fine = rescale_before(fine, scale_before, scale_factor)
+    bars, info = resample_to_session_bars(fine, keep_holidays=keep_holidays)
+    store.upsert_hourly(symbol, bars, f"{source} (resampled from {info['source_minutes']:g}-minute bars)")
+    breaks = suspected_scale_breaks(bars)
+    report = {"resample": info, "suspected_scale_breaks": breaks[:10], "n_suspected_scale_breaks": len(breaks)}
+    if merge_info:
+        report["bid_ask_merge"] = merge_info
+    if scale_before is not None:
+        report["rescaled"] = {"before": scale_before, "factor": scale_factor}
+    return report
 
 
 def ingest_series_file(store: MarketDataStore, path: str, name: str, source: str, date_col: str = "date",

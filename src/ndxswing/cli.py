@@ -1,6 +1,8 @@
 """Command line interface.
 
     ndxswing ingest bars     --db data/market.duckdb --file ndx_1h.parquet --symbol NDX --source "IBKR TRADES"
+    ndxswing ingest intraday --db ... --file ndx_1m.parquet --symbol NDX --source "vendor 1m"
+    ndxswing ingest intraday --db ... --bid-file us100_bid_m1.parquet --ask-file us100_ask_m1.parquet --symbol US100
     ndxswing ingest series   --db ... --file eurusd.csv --name EURUSD
     ndxswing ingest macro    --db ...     (EFFR, SOFR, EURUSD and USD_RATE = EFFR spliced into SOFR; no key needed)
     ndxswing ingest fred     --db ... --series DEXUSEU --name EURUSD
@@ -143,6 +145,12 @@ def cmd_ingest(a: argparse.Namespace) -> None:
             n = ing.ingest_bars_file(store, a.file, a.symbol, a.source, ts_col=a.ts_col, tz=a.tz,
                                      bid_col=a.bid_col, ask_col=a.ask_col)
             print(json.dumps(ing.data_quality_report(store.load_hourly(a.symbol)), indent=2))
+        elif a.what == "intraday":
+            rep = ing.ingest_intraday(store, a.symbol, a.source, a.file, a.bid_file, a.ask_file, a.ts_col, a.tz,
+                                      a.bid_col, a.ask_col, a.keep_holidays, a.price_scale_before, a.price_scale)
+            print(json.dumps(rep, indent=2))
+            print(json.dumps(ing.data_quality_report(store.load_hourly(a.symbol)), indent=2))
+            n = rep["resample"]["bars"]
         elif a.what == "series":
             n = ing.ingest_series_file(store, a.file, a.name, a.source, a.date_col, a.value_col)
         elif a.what == "fred":
@@ -164,7 +172,13 @@ def cmd_ingest(a: argparse.Namespace) -> None:
             from .data.futures import panama_adjust
 
             cont = panama_adjust(store.load_futures(a.root), a.roll_days)
-            n = store.upsert_hourly(a.symbol, cont, f"PANAMA({a.root}, roll T-{a.roll_days})")
+            label = f"PANAMA({a.root}, roll T-{a.roll_days})"
+            if a.resample:      # contract bars finer than an hour: anchor them at the 09:30 open first
+                cont, info = ing.resample_to_session_bars(cont.drop(columns=["contract", "adjustment"]),
+                                                          keep_holidays=a.keep_holidays)
+                print(json.dumps(info, indent=2))
+                label += f", resampled from {info['source_minutes']:g}-minute bars"
+            n = store.upsert_hourly(a.symbol, cont, label)
         elif a.what == "synthetic":
             m = generate_synthetic_market(SyntheticSpec(seed=a.seed, edge=a.edge))
             n = store.upsert_hourly(a.symbol, m["hourly"], SYNTHETIC_SOURCE)
@@ -240,7 +254,8 @@ def main(argv: list[str] | None = None) -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("ingest", help="load data into the DuckDB store")
-    pi.add_argument("what", choices=["bars", "series", "fred", "macro", "events", "ibkr", "futures", "panama", "synthetic"])
+    pi.add_argument("what", choices=["bars", "intraday", "series", "fred", "macro", "events", "ibkr", "futures", "panama",
+                                     "synthetic"])
     pi.add_argument("--db", default="data/market.duckdb")
     pi.add_argument("--file")
     pi.add_argument("--symbol")
@@ -249,6 +264,15 @@ def main(argv: list[str] | None = None) -> None:
     pi.add_argument("--source", default="local file")
     pi.add_argument("--ts-col", default="ts")
     pi.add_argument("--tz", default="UTC", help="time zone of naive timestamps")
+    pi.add_argument("--bid-file", help="intraday: separate bid bars (with --ask-file, instead of --file)")
+    pi.add_argument("--ask-file")
+    pi.add_argument("--keep-holidays", action="store_true",
+                    help="intraday / panama --resample: keep bars on NYSE holidays and after early closes")
+    pi.add_argument("--price-scale-before", default=None,
+                    help="intraday: multiply prices of bars before this UTC date by --price-scale")
+    pi.add_argument("--price-scale", type=float, default=1.0)
+    pi.add_argument("--resample", action="store_true",
+                    help="panama: contract bars are finer than an hour; build 09:30-anchored session bars")
     pi.add_argument("--bid-col")
     pi.add_argument("--ask-col")
     pi.add_argument("--date-col", default="date")
