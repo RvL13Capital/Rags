@@ -1,11 +1,12 @@
 # ndxswing — NASDAQ-100 swing-system research stack
 
 > **Status: NOT READY FOR LIVE DEPLOYMENT.**
-> No backtest on real market data has been run. The workspace contained no historical OHLCV / bid-ask
-> files and the build environment could not reach a market-data vendor, so everything in this
-> repository has been verified on **synthetic data and hand-scripted bars only**. Those runs test the
-> machinery; they are not evidence of an edge. Real-data walk-forward validation (2012–2026) and
-> 8–12 weeks of paper trading are still outstanding.
+> A first real-data run (public NQ futures tape, 2015–2025, 6.45 out-of-sample years) fails the
+> locked release gates in all four configurations; the primary one fails six of ten with an
+> out-of-sample Sharpe of 0.28. See
+> [`research_runs/2026-11-23_public_nq_2015_2025/`](research_runs/2026-11-23_public_nq_2015_2025/README.md).
+> That run is preliminary: it is not the planned 2012–2026 vendor data and has no bid/ask history.
+> Everything under `docs/pipeline_verification/` is synthetic and tests the machinery only.
 
 This repository implements the first engineering deliverable of the handover:
 
