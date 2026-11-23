@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-106 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
+111 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
 state machine, Monte Carlo / brute-force references for the statistics, and look-ahead checks that
 recompute features and signals on truncated history.
 
@@ -47,15 +47,13 @@ recompute features and signals on truncated history.
 ndxswing ingest bars --db data/market.duckdb --file ndx_1h.parquet --symbol NDX --tz America/New_York --source "IBKR TRADES RTH" --bid-col bid --ask-col ask
 ```
 
-2. Load EURUSD (USD per EUR) and a USD benchmark rate for CFD financing. With a FRED key
-   (`FRED_API_KEY`) the fixings can be pulled directly; a CSV works as well (`ingest series`).
+2. Load EURUSD and the USD overnight rates for CFD financing. One call, no API key: it reads
+   FRED's public CSV download (EFFR, SOFR, and DEXUSEU for EURUSD) and stores `USD_RATE` = EFFR,
+   the only one of the two rates that covers a 2012 start. With `FRED_API_KEY` set the JSON API is
+   used instead. This step was run live from the build environment (data to November 2026).
 
 ```bash
-ndxswing ingest fred --db data/market.duckdb --series DEXUSEU --name EURUSD
-```
-
-```bash
-ndxswing ingest fred --db data/market.duckdb --series DFF --name USD_RATE --scale 0.01
+ndxswing ingest macro --db data/market.duckdb
 ```
 
 3. Optionally load a tier-1 event calendar (`ts,name,tier`; FOMC, CPI, NFP, top-3 NDX earnings).
@@ -86,14 +84,23 @@ Other commands: `ndxswing summary`, `ndxswing backtest`, `ndxswing ingest ibkr|f
 
 ### Broker presets (`--instrument`)
 
+A EUR 5,000 account needs a fractional index CFD and, for automation, a programmatic API. That
+rules out IBKR (IBUST100 trades whole units) and OANDA (its v20 REST API documentation excludes the
+EU entity, OANDA TMS Brokers S.A.).
+
 | Preset | Lot rule | Costs | Status of the numbers |
 |---|---|---|---|
-| `micro_cfd` (default) | 0.01 index units, USD 1 per point (`--lot-step`) | 1.2 pt spread, no ticket fee, benchmark ± 2.5% | Supplied in review, **not verified** against a published rate card. OANDA's help table lists a 0.01-unit minimum for index CFDs on its own platform and 0.1 on MT4 |
-| `ibkr_cfd` | IBUST100, whole units only | 0.010% (min USD 1.00), benchmark ± 1.5%, 1.0 pt spread assumed | Commission, minimum, multiplier and financing spread checked against IBKR's index CFD schedule (Nov 2026); the spread is an assumption |
+| `pepperstone_eu_ctrader` (default) | USD 1 per point per lot, minimum and step 0.01 (`--lot-step 0.1` for the coarser rule) | 1.2 pt spread, no index commission, overnight rate ± 2.5% (ACT/360) | Supplied schedule, **not confirmed**. Pepperstone states no commission on index CFDs and advertises spreads from about 1.0 pt. The only minimum-size figure I found, on a third-party page, says 0.1 lot: check the cTrader symbol specification |
+| `capital_com_eu_rest` | USD 1 per point per contract, minimum and step 0.10 | 1.2 pt spread, no commission, overnight rate ± 2.5% | Supplied schedule, **contradicted on two points by Capital.com's own EU market page**, which lists a minimum quantity of 0.001 and a long overnight charge of 0.02226% of position value a day, about 8.0% a year or the overnight rate + 4.1%. To model the page: `--lot-step 0.001 --financing-markup 0.041` |
+| `ibkr_cfd` | IBUST100, whole units only | 0.010% (min USD 1.00), benchmark ± 1.5%, 1.0 pt spread assumed | Commission, minimum, multiplier and financing spread checked against IBKR's schedule (Nov 2026). Sizes to zero on EUR 5,000 |
 | `ucits_etf` | whole shares, long only, EUR-quoted and unhedged | 6 bp spread, 2 bp slippage, EUR 1 ticket, no financing | Assumptions; set `--etf-price-ratio` for the actual share class |
 
 Every cost field can be overridden (`--spread-points`, `--spread-bps`, `--slippage-bps`,
-`--commission-bps`, `--commission-min`, `--financing-markup`).
+`--commission-bps`, `--commission-min`, `--financing-markup`), and `--b-risk` sets the risk per
+trade (default 0.0025). With a 0.10 lot, 0.25% risk is clipped to zero for a typical stop;
+`--b-risk 0.0035` is the smallest budget that carries a 135-point stop, and in the synthetic run it
+still left about a third of signals below the minimum lot. The CLI warns when the lot size, rather
+than the strategy, is deciding what trades.
 
 **Lot rules are normalised to one index level** (`--lot-reference-price`, default `last` = the final
 close). One lot is then the same notional throughout history. Without this, a 2012 backtest at
@@ -153,10 +160,38 @@ challengers that are expected to starve trades, the Hurst gate (specification ve
 point-estimate-only version) and the ARMA Z filter. A module is retained only if stitched OOS Sharpe
 improves by at least 0.05, Calmar does not fall and the trade count stays above a floor.
 
-Because these decisions look at OOS data, the OOS curve of every variant examined becomes a trial
-for the Deflated Sharpe Ratio and a column of the CSCV matrix for PBO, and `--holdout-start`
-reserves a period no decision ever sees. A single fixed-prior run involves no selection, so its DSR
-is the probabilistic Sharpe ratio against zero and PBO is reported as not applicable.
+Because these decisions look at OOS data, the OOS curve of every variant examined is one of the K
+configurations compared, and `--holdout-start` reserves a period no decision ever sees.
+
+### Release gates
+
+| Gate | Rule | Notes |
+|---|---|---|
+| OOS net Sharpe | > 0.80 | locked |
+| Deflated Sharpe Ratio | > 0.95 | zero-mean null (Bailey and López de Prado 2014) with N_eff = max(1, ρ̄ + (1 − ρ̄)·K), ρ̄ the average pairwise correlation of the K compared return series. One fixed configuration: N_eff = 1, SR₀ = 0 |
+| CSCV P(OOS loss of the in-sample winner) | < 15% | over all K configurations; not applicable when K = 1 |
+| CSCV rank PBO | < 0.25 | enforced only when the released configuration has tuned parameters and the in-sample Sharpe IQR across its parameter draws exceeds 0.25; otherwise reported as N/A |
+| OOS net profit factor | > 1.20 | locked |
+| OOS net P&L under 1.5× costs | > 0 | |
+| OOS maximum drawdown | < 10% | locked; measured from the never re-based high-water mark |
+| Monte Carlo P(DD ≥ 20%) | < 2% | most adverse of the three generators |
+| Profitable walk-forward OOS folds | ≥ 65% | |
+| Independent OOS trades | ≥ 150 | |
+
+The DSR with the cross-trial mean in its benchmark and the probabilistic Sharpe ratio against zero
+are printed next to the gate as information only.
+
+Two readings of the calibration that are stricter than a literal one, both on purpose:
+
+- **K counts module variants even when no parameter is tuned.** Choosing among fifteen ablation
+  variants is selection. On the synthetic control this gives N_eff = 6.1 and a DSR of 0.968; with
+  N_eff forced to 1 it would be 0.999.
+- **P(OOS loss) is gated whenever K ≥ 2**, not only when parameters are tuned.
+
+And one that is narrower: the rank statistic is computed over parameter draws of the released
+configuration only. Module variants are a heterogeneous set in which a three-trade variant can be
+the in-sample "best"; over that set the control scored 0.73 with an IQR of 0.26, a hair over the
+0.25 cut-off, and would have failed on a technicality.
 
 ### Drawdown breakers
 
@@ -209,8 +244,8 @@ tearsheet refuses to issue a release verdict for synthetic data.
    sizing decision.
 2. **Interactive Brokers cannot carry this system on EUR 5,000.** IBUST100 trades in whole units of
    1 × index. At 25,288 that is about USD 25,300, some 4.7 times the account, so the 1.5× leverage
-   cap sizes every order to zero. A micro-lot CFD broker or a cash ETF is required, which also means
-   a different execution adapter than the planned IBKR gateway.
+   cap sizes every order to zero. The execution adapter has to target a micro-lot CFD API
+   (cTrader Open API or Capital.com REST) or a cash ETF broker, not the planned IBKR gateway.
 3. **A 0.1 lot is too coarse for the EUR 12.50 burn-in budget.** With a 135-point stop and the
    1.25× gap buffer, 0.1 units risks about EUR 15.70. It fits EUR 25.00; a 0.01 lot fits both. The
    preset default is therefore 0.01.
@@ -228,19 +263,14 @@ tearsheet refuses to issue a release verdict for synthetic data.
    (spread, slippage and financing, the last being more than half), around 0.06R at EUR 12.50 risk.
    The ETF pays no financing, but a EUR 1 ticket on each leg is EUR 2 a round trip, 0.16R on its
    own. At this account size the ETF only wins with a near-zero ticket fee.
-7. **The release gates have little power at this trade count.** The positive control is a real
-   edge by construction (OOS Sharpe 0.96, profit factor 1.75) and still fails four of nine gates:
-   DSR, PBO, 70% profitable folds (69%) and more than 200 trades (189). Expect a real-data run to
-   end in NOT READY whether or not a modest edge exists; about 18 trades a year over ten OOS years
-   cannot confirm one. Two of the four failures are structural and need a decision:
-   - *DSR.* The specified form adds the cross-trial mean to the benchmark. When the trials are
-     sibling variants that all share the edge, that mean is the edge, and the control scores 0.10.
-     With the null centred at zero (the original Bailey and López de Prado form) it scores 0.91.
-     Both are reported; the gate still uses the specified form.
-   - *PBO.* CSCV measures whether the in-sample ranking of the compared configurations persists.
-     Among near-identical variants that is close to a coin flip, so shrinking the search space does
-     not lower it: the control scores 0.73. On pure noise the statistic centres on 0.5 with a
-     standard deviation near 0.19.
+7. **What the recalibrated gates do, measured on synthetic histories.** Fixed-prior baseline, 40
+   independent histories each, complete battery: with no edge, 0 of 40 pass (which bounds the
+   false-positive rate below about 7.5% at 95% confidence); with the planted edge (median OOS Sharpe
+   0.93), 22 of 40 pass. So a real edge of that size has roughly even odds of being confirmed on
+   ten OOS years at about 18 trades a year, and a weaker one will usually be rejected. The gates
+   that reject it are the profitable-folds share and the Sharpe floor, not the overfitting tests.
+   The fold and trade thresholds were set after seeing the control land at 69% and 189, so they
+   are fitted to this trade frequency; the no-edge result is what shows they did not open the door.
 
 On the suggestion to score parameters on train plus validation: I dropped it in favour of the
 longer validation window. One nuance for the record: in this implementation the statistical models
@@ -252,7 +282,9 @@ Sources for the broker and venue facts:
 [IBKR index CFD commissions](https://www.interactivebrokers.ie/en/pricing/commissions-cfd-index.php),
 [IBKR index CFDs, facts and Q&A](https://ibkb.interactivebrokers.com/article/1984),
 [Deutsche Börse, Extended Xetra Retail Service](https://cashmarket.deutsche-boerse.com/cash-en/Data-Tech/Initiatives-Releases/extended-xetra-retail-service),
-[OANDA minimum trade size](https://help.oanda.com/au/en/faqs/minimum-trade-size.htm).
+[OANDA v20 REST API, getting started](https://developer.oanda.com/rest-live-v20/introduction/),
+[Capital.com US Tech 100, EU page](https://capital.com/en-eu/markets/indices/us-tech-100-index),
+[Pepperstone index CFDs](https://pepperstone.com/global/trading/instruments/index-cfds).
 
 ## Not in this deliverable
 

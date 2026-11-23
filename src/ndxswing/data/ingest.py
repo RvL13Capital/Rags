@@ -3,7 +3,9 @@
 Sources
 -------
 * local CSV / Parquet files (bars, daily series, events, futures chains);
-* FRED (daily FX fixings and policy rates) - needs ``FRED_API_KEY``;
+* FRED (daily FX fixings and overnight rates): the JSON API when
+  ``FRED_API_KEY`` is set, otherwise the public keyless CSV download
+  (``fred.stlouisfed.org/graph/fredgraph.csv?id=EFFR``);
 * Interactive Brokers historical bars through TWS / IB Gateway (``ib_async``
   or ``ib_insync``).  NOTE: the IBKR path could not be exercised against a
   live gateway in the build environment; treat it as unverified until it has
@@ -14,8 +16,10 @@ Nothing here invents data: a failed download raises, it never back-fills.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -26,6 +30,7 @@ import pandas as pd
 from .store import MarketDataStore
 
 FRED_URL = "https://api.stlouisfed.org/fred/series/observations"
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 
 
 def read_table(path: str | Path) -> pd.DataFrame:
@@ -87,13 +92,14 @@ def ingest_events_file(store: MarketDataStore, path: str, source: str, tz: str =
 
 
 def fetch_fred_series(series_id: str, start: str = "2010-01-01", api_key: str | None = None,
-                      opener: object = urllib.request.urlopen) -> pd.Series:
+                      opener: object = None) -> pd.Series:
     """Daily observations of a FRED series (e.g. DEXUSEU = USD per EUR, DFF)."""
     key = api_key or os.environ.get("FRED_API_KEY")
     if not key:
         raise RuntimeError("FRED_API_KEY is not set; request a free key at fred.stlouisfed.org")
     q = urllib.parse.urlencode({"series_id": series_id, "api_key": key, "file_type": "json",
                                 "observation_start": start})
+    opener = opener or urllib.request.urlopen
     with opener(f"{FRED_URL}?{q}") as resp:   # noqa: S310 - fixed https host
         payload = json.loads(resp.read().decode())
     obs = payload.get("observations")
@@ -104,10 +110,73 @@ def fetch_fred_series(series_id: str, start: str = "2010-01-01", api_key: str | 
     return s
 
 
+def fetch_fred_csv(series_id: str, start: str = "2010-01-01", opener: object = None) -> pd.Series:
+    """Daily observations from FRED's public CSV download - no API key."""
+    # No custom User-Agent: FRED's front end silently drops requests whose
+    # agent string it does not recognise, while the urllib default is served.
+    url = f"{FRED_CSV_URL}?{urllib.parse.urlencode({'id': series_id, 'cosd': start})}"
+    opener = opener or urllib.request.urlopen
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            with opener(url, timeout=60) as resp:   # noqa: S310 - fixed https host
+                text = resp.read().decode("utf-8", errors="replace")
+            break
+        except (OSError, http.client.HTTPException) as exc:   # timeouts, resets, dropped connections
+            last_exc = exc
+            time.sleep(2.0 * (attempt + 1))
+    else:
+        raise RuntimeError(f"FRED CSV download for {series_id} failed after 3 attempts: {last_exc}") from last_exc
+    lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+    header = [h.strip() for h in lines[0].split(",")] if lines else []
+    if len(header) != 2 or header[0] not in ("observation_date", "DATE") or header[1] != series_id:
+        raise RuntimeError(f"FRED CSV for {series_id} has an unexpected layout: {text[:120]!r}")
+    dates, vals = [], []
+    for ln in lines[1:]:
+        d, _, v = ln.partition(",")
+        dates.append(d.strip())
+        vals.append(v.strip())
+    s = pd.Series(pd.to_numeric(pd.Series(vals), errors="coerce").to_numpy(), index=pd.to_datetime(dates),
+                  name=series_id).dropna()     # FRED marks holidays with "." or an empty field
+    if s.empty:
+        raise RuntimeError(f"FRED CSV returned no observations for {series_id} from {start}")
+    return s
+
+
+def fetch_fred(series_id: str, start: str = "2010-01-01", api_key: str | None = None) -> tuple[pd.Series, str]:
+    """(series, source label): JSON API with a key, keyless CSV without one."""
+    if api_key or os.environ.get("FRED_API_KEY"):
+        return fetch_fred_series(series_id, start, api_key), f"FRED:{series_id} (API)"
+    return fetch_fred_csv(series_id, start), f"FRED:{series_id} (public CSV)"
+
+
 def ingest_fred(store: MarketDataStore, series_id: str, name: str, start: str = "2010-01-01",
                 scale: float = 1.0) -> int:
     """``scale`` converts units, e.g. 0.01 for a rate quoted in percent."""
-    return store.upsert_series(name, fetch_fred_series(series_id, start) * scale, f"FRED:{series_id}")
+    s, source = fetch_fred(series_id, start)
+    return store.upsert_series(name, s * scale, source)
+
+
+def ingest_usd_macro(store: MarketDataStore, start: str = "2010-01-01") -> dict[str, dict]:
+    """Everything the backtest needs besides price bars and the event
+    calendar, in one call and without a key:
+
+    EFFR      effective federal funds rate, decimal p.a.
+    SOFR      secured overnight financing rate, decimal p.a. (starts April 2018)
+    USD_RATE  the benchmark used for CFD financing = EFFR, the only one of the
+              two that covers a 2012 start; SOFR and EFFR differ by a few
+              basis points
+    EURUSD    USD per EUR, the daily noon fixing (DEXUSEU)
+    """
+    out: dict[str, dict] = {}
+    for sid, names, scale in (("EFFR", ("EFFR", "USD_RATE"), 0.01), ("SOFR", ("SOFR",), 0.01),
+                              ("DEXUSEU", ("EURUSD",), 1.0)):
+        s, source = fetch_fred(sid, start)
+        for name in names:
+            store.upsert_series(name, s * scale, source)
+            out[name] = {"rows": int(len(s)), "first": str(s.index[0].date()), "last": str(s.index[-1].date()),
+                         "last_value": float(s.iloc[-1] * scale), "source": source}
+    return out
 
 
 def download_ibkr_hourly(symbol: str, sec_type: str, exchange: str, currency: str = "USD", start: str = "2012-01-01",

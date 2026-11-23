@@ -94,6 +94,8 @@ class TearsheetReporter:
         oos_stress: BacktestResult | None = None,
         trial_sharpes: np.ndarray | None = None,
         n_trials: int | None = None,
+        n_tuned: int | None = None,
+        rho_bar: float = 0.0,
         pbo: dict | None = None,
         fold_table: pd.DataFrame | None = None,
         mc_config: MonteCarloConfig = MonteCarloConfig(),
@@ -106,7 +108,9 @@ class TearsheetReporter:
         self.segments = {s: segments.get(s) for s in SEGMENTS}
         self.oos_stress = oos_stress
         self.trial_sharpes = None if trial_sharpes is None else np.asarray(trial_sharpes, dtype=float)
-        self.n_trials = n_trials
+        self.n_trials = n_trials          # K: configurations compared (1 = nothing was selected)
+        self.n_tuned = n_tuned            # parameters the optimiser moves for the reported configuration
+        self.rho_bar = rho_bar            # average pairwise correlation of the K return series
         self.pbo = pbo
         self.fold_table = fold_table
         self.mc_config = mc_config
@@ -136,14 +140,14 @@ class TearsheetReporter:
         oos = self.segments["oos"]
         dsr = None
         if oos is not None and self.trial_sharpes is not None and len(self.trial_sharpes) >= 2:
-            dsr = deflated_sharpe_ratio(oos.daily_returns().to_numpy(), self.trial_sharpes, self.n_trials)
+            dsr = deflated_sharpe_ratio(oos.daily_returns().to_numpy(), self.trial_sharpes, self.n_trials, self.rho_bar)
         elif oos is not None and self.n_trials == 1:
-            # a single configuration was run and nothing was selected: the
-            # benchmark Sharpe under the null is zero (DSR == PSR(0))
+            # one fixed configuration, nothing selected: N_eff = 1 and SR_0 = 0
             r = oos.daily_returns().to_numpy()
             psr0 = probabilistic_sharpe_ratio(r, 0.0)
-            dsr = {"dsr": psr0, "dsr_zero_mean_null": psr0, "sr_per_period": sharpe_per_period(r),
-                   "sr0_per_period": 0.0, "sr0_zero_mean_null": 0.0, "n_trials": 1, "trial_sr_mean": float("nan"),
+            dsr = {"dsr": psr0, "dsr_cross_trial_mean": float("nan"), "psr_zero": psr0,
+                   "sr_per_period": sharpe_per_period(r), "sr0_per_period": 0.0, "sr0_cross_trial_mean": float("nan"),
+                   "n_trials": 1, "n_eff": 1.0, "rho_bar": 1.0, "trial_sr_mean": float("nan"),
                    "trial_sr_std": float("nan"), "no_selection": True}
         report["dsr"] = dsr
         report["breakers"] = None if oos is None else {
@@ -166,11 +170,14 @@ class TearsheetReporter:
         report["verdict"] = self._verdict(report["gates"], synthetic)
         return report
 
-    @staticmethod
-    def _gates(oos: dict | None, dsr: dict | None, stress: dict | None, folds: dict | None) -> list[dict]:
-        def g(name: str, value: object, ok: bool | None, rule: str) -> dict:
-            return {"gate": name, "value": value, "rule": rule,
-                    "status": "NOT EVALUATED" if ok is None else ("PASS" if ok else "FAIL")}
+    #: thresholds of the release battery (section 8.4, as recalibrated)
+    MIN_SHARPE, MIN_DSR, MAX_OOS_LOSS, MAX_RANK_PBO, RANK_PBO_MIN_IQR = 0.80, 0.95, 0.15, 0.25, 0.25
+    MIN_PF, MAX_DD, MAX_MC_DD20, MIN_FOLDS, MIN_TRADES = 1.20, 0.10, 0.02, 0.65, 150
+
+    def _gates(self, oos: dict | None, dsr: dict | None, stress: dict | None, folds: dict | None) -> list[dict]:
+        def g(name: str, value: object, ok: bool | None, rule: str, status: str | None = None) -> dict:
+            st = status or ("NOT EVALUATED" if ok is None else ("PASS" if ok else "FAIL"))
+            return {"gate": name, "value": value, "rule": rule, "status": st}
 
         def val(d: dict | None, k: str) -> float | None:
             v = None if d is None else d.get(k)
@@ -179,30 +186,43 @@ class TearsheetReporter:
         sh, pf, mdd, nt = (val(oos, k) for k in ("sharpe", "profit_factor", "max_drawdown", "n_trades"))
         p20 = val(oos, "mc_p_dd_20")
         d = val(dsr, "dsr")
-        pbo_v = None
+        no_selection = self.n_trials == 1
+        pbo = self.pbo
+        # probability that the in-sample winner loses out of sample
+        if no_selection:
+            loss = g("CSCV P(OOS loss of IS-best)", None, None, "< 15%", "N/A (no selection)")
+        else:
+            lv = val(pbo, "prob_oos_loss")
+            loss = g("CSCV P(OOS loss of IS-best)", lv, None if lv is None else lv < self.MAX_OOS_LOSS, "< 15%")
+        # rank PBO is only informative when something was tuned and the variants differ in sample
+        rv, iqr = val(pbo, "pbo"), val(pbo, "is_sharpe_iqr")
+        rule = "< 0.25 when tuned and IS Sharpe IQR > 0.25"
+        if no_selection:
+            rank = g("CSCV rank PBO", None, None, rule, "N/A (no selection)")
+        elif not self.n_tuned:
+            rank = g("CSCV rank PBO", rv, None, rule, "N/A (nothing tuned)")
+        elif rv is None or iqr is None:
+            rank = g("CSCV rank PBO", rv, None, rule)
+        elif iqr <= self.RANK_PBO_MIN_IQR:
+            rank = g("CSCV rank PBO", rv, None, rule, f"N/A (IS Sharpe IQR {iqr:.2f}: homogeneous variants)")
+        else:
+            rank = g("CSCV rank PBO", rv, rv < self.MAX_RANK_PBO, rule)
+        share = None if folds is None else folds["profitable_share"]
         return [
-            g("OOS net Sharpe", sh, None if sh is None else sh > 0.80, "> 0.80"),
-            g("Deflated Sharpe Ratio", d, None if d is None else d > 0.95, "> 0.95"),
-            g("PBO (CSCV)", pbo_v, None, "< 0.25"),
-            g("OOS net profit factor", pf, None if pf is None else pf > 1.20, "> 1.20"),
+            g("OOS net Sharpe", sh, None if sh is None else sh > self.MIN_SHARPE, "> 0.80"),
+            g("Deflated Sharpe Ratio (zero-mean null, N_eff)", d, None if d is None else d > self.MIN_DSR, "> 0.95"),
+            loss,
+            rank,
+            g("OOS net profit factor", pf, None if pf is None else pf > self.MIN_PF, "> 1.20"),
             g("OOS net P&L under 1.5x costs", val(stress, "net_pnl"),
               None if stress is None else stress["net_pnl"] > 0, "> 0"),
-            g("OOS maximum drawdown", mdd, None if mdd is None else mdd < 0.10, "< 10%"),
-            g("Monte Carlo P(DD >= 20%)", p20, None if p20 is None else p20 < 0.02, "< 2%"),
-            g("Profitable walk-forward OOS folds", None if folds is None else folds["profitable_share"],
-              None if folds is None else folds["profitable_share"] >= 0.70, ">= 70%"),
-            g("Independent OOS trades", nt, None if nt is None else nt > 200, "> 200"),
+            g("OOS maximum drawdown (true high-water mark)", mdd, None if mdd is None else mdd < self.MAX_DD, "< 10%"),
+            g("Monte Carlo P(DD >= 20%)", p20, None if p20 is None else p20 < self.MAX_MC_DD20, "< 2%"),
+            g("Profitable walk-forward OOS folds", share, None if share is None else share >= self.MIN_FOLDS, ">= 65%"),
+            g("Independent OOS trades", nt, None if nt is None else nt >= self.MIN_TRADES, ">= 150"),
         ]
 
     def _verdict(self, gates: list[dict], synthetic: bool) -> str:
-        # PBO is filled in here because it lives outside the per-segment metrics
-        for gate in gates:
-            if gate["gate"].startswith("PBO"):
-                if self.pbo is not None:
-                    gate["value"] = self.pbo["pbo"]
-                    gate["status"] = "PASS" if self.pbo["pbo"] < 0.25 else "FAIL"
-                elif self.n_trials == 1:
-                    gate["status"] = "N/A (no selection)"
         statuses = ["PASS" if g["status"].startswith("N/A") else g["status"] for g in gates]
         if synthetic:
             return ("PIPELINE VERIFICATION ONLY - synthetic data. No empirical conclusion about the "
@@ -252,21 +272,26 @@ class TearsheetReporter:
             d = rep["dsr"]
             L += ["## Overfitting diagnostics", ""]
             if d.get("no_selection"):
-                L.append(f"- One fixed configuration, nothing selected: DSR equals the probabilistic Sharpe ratio "
-                         f"against zero, **{_fmt(d['dsr'], 'f4')}** (per-period SR {d['sr_per_period']:.4f}). "
-                         f"PBO is not applicable.")
+                L.append(f"- One fixed configuration, nothing selected: N_eff = 1, SR0 = 0, so the DSR is the "
+                         f"probabilistic Sharpe ratio against zero, **{_fmt(d['dsr'], 'f4')}** "
+                         f"(per-period SR {d['sr_per_period']:.4f}). The CSCV statistics are not applicable.")
             else:
-                L.append(f"- Deflated Sharpe Ratio: **{_fmt(d['dsr'], 'f4')}** (per-period SR {d['sr_per_period']:.4f} "
-                         f"vs expected maximum under the null SR0 {d['sr0_per_period']:.4f}, N = {d['n_trials']} trials, "
-                         f"cross-trial mean {d['trial_sr_mean']:.4f}, std {d['trial_sr_std']:.4f}). "
-                         f"With the null centred at zero instead (original Bailey / Lopez de Prado form, "
-                         f"SR0 {d['sr0_zero_mean_null']:.4f}) it is {_fmt(d['dsr_zero_mean_null'], 'f4')}; the gate "
-                         f"uses the first figure.")
+                L.append(f"- **Gate.** DSR, zero-mean null: **{_fmt(d['dsr'], 'f4')}** (per-period SR "
+                         f"{d['sr_per_period']:.4f} vs SR0 {d['sr0_per_period']:.4f}; K = {d['n_trials']} configurations "
+                         f"compared, average pairwise correlation {d['rho_bar']:.2f}, N_eff = {d['n_eff']:.1f}; "
+                         f"cross-trial Sharpe std {d['trial_sr_std']:.4f})")
+                L.append(f"- Informational. DSR with the cross-trial mean in the benchmark and all K trials: "
+                         f"{_fmt(d['dsr_cross_trial_mean'], 'f4')} (SR0 {d['sr0_cross_trial_mean']:.4f}, cross-trial mean "
+                         f"{d['trial_sr_mean']:.4f}). Probabilistic Sharpe ratio against zero (N_eff = 1): "
+                         f"{_fmt(d['psr_zero'], 'f4')}.")
             if rep["pbo"]:
                 p = rep["pbo"]
-                L.append(f"- PBO (CSCV, {p['n_combinations']} splits of {p['n_configs']} configurations): "
-                         f"**{p['pbo']:.3f}**; IS->OOS Sharpe slope {p['is_oos_slope']:.3f}; "
-                         f"P(OOS loss of IS-best) {p['prob_oos_loss']:.3f}")
+                L.append(f"- CSCV over {p['n_combinations']} splits of the {p['n_configs']} configurations compared: "
+                         f"P(OOS loss of the in-sample winner) **{p['prob_oos_loss']:.3f}**; IS->OOS Sharpe slope "
+                         f"{p['is_oos_slope']:.3f}")
+                if p.get("pbo") is not None:
+                    L.append(f"- Rank PBO over {p.get('n_rank_configs', p['n_configs'])} parameter draws of this configuration: "
+                             f"{p['pbo']:.3f}; in-sample Sharpe IQR across the draws {p['is_sharpe_iqr']:.2f}")
             L.append("")
         if rep["oos_cost_stress"]:
             s = rep["oos_cost_stress"]

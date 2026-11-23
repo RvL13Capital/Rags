@@ -125,6 +125,10 @@ def test_walk_forward_end_to_end(small_ctx, tmp_path):
     rep = ts.build()
     assert rep["synthetic"] and rep["verdict"].startswith("PIPELINE VERIFICATION ONLY")
     assert rep["dsr"] is not None and rep["pbo"] is not None and rep["folds"]["n_folds"] == n
+    # tuned configuration: loss probability over everything compared, rank PBO over its own parameter draws
+    assert rep["pbo"]["n_rank_configs"] == 8 and 0.0 <= rep["pbo"]["pbo"] <= 1.0
+    assert 0.0 <= rep["pbo"]["prob_oos_loss"] <= 1.0 and rep["dsr"]["n_eff"] <= 8.0
+    assert rep["meta"]["tuned parameters"] == "donchian_window, atr_stop_mult, max_hold_days"
     for seg in ("in_sample", "validation", "oos"):
         assert rep["segments"][seg] is not None
     paths = ts.save(tmp_path)
@@ -142,14 +146,18 @@ def test_fixed_prior_walk_forward_has_no_selection(small_ctx):
     assert runner.config_trials(wf) == []
     rep = runner.tearsheet(wf, mc_config=MonteCarloConfig(n_paths=200)).build()
     gates = {g["gate"]: g["status"] for g in rep["gates"]}
-    assert gates["PBO (CSCV)"] == "N/A (no selection)" and rep["pbo"] is None
-    assert rep["dsr"]["no_selection"] and rep["dsr"]["sr0_per_period"] == 0.0
+    assert gates["CSCV rank PBO"] == "N/A (no selection)" and rep["pbo"] is None
+    assert rep["dsr"]["no_selection"] and rep["dsr"]["sr0_per_period"] == 0.0 and rep["dsr"]["n_eff"] == 1.0
     assert rep["meta"]["tuned parameters"].startswith("none")
     # with other variants on the table the same run is judged against them
     other = small_ctx.backtester().run(StrategyParams(donchian_window=30), ModuleFlags(),
                                        start=wf.folds[0].oos_start, end=wf.folds[-1].oos_end)
     rep2 = runner.tearsheet(wf, extra_trials=[wf.oos, other], mc_config=MonteCarloConfig(n_paths=200)).build()
     assert rep2["dsr"]["n_trials"] == 2 and "no_selection" not in rep2["dsr"]
+    assert 1.0 <= rep2["dsr"]["n_eff"] <= 2.0 and 0.0 <= rep2["dsr"]["rho_bar"] <= 1.0
+    g2 = {g["gate"]: g["status"] for g in rep2["gates"]}
+    assert g2["CSCV rank PBO"] == "N/A (nothing tuned)"            # variants compared, but no parameter tuned
+    assert g2["CSCV P(OOS loss of IS-best)"] in ("PASS", "FAIL")   # ... so the loss probability is still gated
 
 
 def test_validation_objective_never_sees_oos_data(small_ctx):
@@ -269,6 +277,53 @@ def test_fred_fetch_parses_and_refuses_without_key(monkeypatch):
         ing.fetch_fred_series("DEXUSEU")
     with pytest.raises(RuntimeError, match="no observations"):
         ing.fetch_fred_series("X", api_key="k", opener=lambda url: Resp({"error_message": "bad"}))
+
+
+def test_keyless_fred_csv_and_macro_ingest(monkeypatch, tmp_path):
+    class Resp:
+        def __init__(self, text): self.text = text
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return self.text.encode()
+
+    calls = []
+    payload = {
+        "EFFR": "observation_date,EFFR\n2024-01-02,5.33\n2024-01-03,5.33\n2024-01-15,.\n2024-01-16,5.33\n",
+        "SOFR": "observation_date,SOFR\n2024-01-02,5.40\n2024-01-03,5.39\n2024-01-15,\n",
+        "DEXUSEU": "DATE,DEXUSEU\n2024-01-02,1.0956\n2024-01-03,1.0919\n",
+    }
+
+    def opener(url, timeout=None):
+        calls.append(url)
+        sid = url.split("id=")[1].split("&")[0]
+        return Resp(payload[sid])
+
+    s = ing.fetch_fred_csv("EFFR", "2024-01-01", opener=opener)
+    assert list(s) == [5.33, 5.33, 5.33] and s.index[-1] == pd.Timestamp("2024-01-16")   # holiday "." dropped
+    assert calls[0].startswith("https://fred.stlouisfed.org/graph/fredgraph.csv?id=EFFR") and "cosd=2024-01-01" in calls[0]
+    with pytest.raises(RuntimeError, match="unexpected layout"):
+        ing.fetch_fred_csv("EFFR", opener=lambda url, timeout=None: Resp("<html>blocked</html>"))
+    fails = []
+
+    def flaky(url, timeout=None):
+        fails.append(1)
+        raise TimeoutError("read timed out")
+
+    monkeypatch.setattr(ing.time, "sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="failed after 3 attempts"):
+        ing.fetch_fred_csv("EFFR", opener=flaky)
+    assert len(fails) == 3
+
+    # no key in the environment -> the one-call macro ingest uses the CSV route for every series
+    monkeypatch.delenv("FRED_API_KEY", raising=False)
+    monkeypatch.setattr(ing.urllib.request, "urlopen", opener)
+    with MarketDataStore(tmp_path / "macro.duckdb") as store:
+        info = ing.ingest_usd_macro(store, "2024-01-01")
+        assert set(info) == {"EFFR", "USD_RATE", "SOFR", "EURUSD"}
+        assert store.load_series("USD_RATE").iloc[0] == pytest.approx(0.0533)             # percent -> decimal
+        assert store.load_series("SOFR").iloc[-1] == pytest.approx(0.0539)
+        assert store.load_series("EURUSD").iloc[0] == pytest.approx(1.0956)
+        assert "public CSV" in info["USD_RATE"]["source"]
 
 
 def test_panama_adjustment_removes_roll_gap_and_keeps_raw_prices():

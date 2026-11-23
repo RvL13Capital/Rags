@@ -37,7 +37,9 @@ import numpy as np
 import optuna
 import pandas as pd
 
-from ..analytics.stats import cscv_pbo, max_drawdown, returns_matrix, sharpe_per_period
+from ..analytics.stats import (
+    average_pairwise_correlation, cscv_pbo, max_drawdown, returns_matrix, sharpe_per_period,
+)
 from ..analytics.tearsheet import TearsheetReporter
 from ..analytics.montecarlo import MonteCarloConfig
 from ..backtest.engine import BacktestResult, EventDrivenBacktester
@@ -387,22 +389,44 @@ class PurgedWalkForwardRunner:
                 for th in random_configs(self.space, n_configs, seed)]
 
     def tearsheet(self, wf: WalkForwardResult, n_configs: int = 64, extra_trials: list[BacktestResult] | None = None,
-                  mc_config: MonteCarloConfig = MonteCarloConfig(), meta: dict | None = None,
-                  title: str = "NASDAQ-100 swing system") -> TearsheetReporter:
+                  n_tuned: int | None = None, mc_config: MonteCarloConfig = MonteCarloConfig(),
+                  meta: dict | None = None, title: str = "NASDAQ-100 swing system") -> TearsheetReporter:
         """``extra_trials`` are OOS results of other configurations that were
         looked at before settling on this one (the ablation variants).  They
-        join the random parameter draws as trials for DSR and PBO.  With no
-        tuning and no other variants there was no selection at all: DSR then
-        reduces to the probabilistic Sharpe ratio against zero and PBO is not
-        applicable."""
-        trials = self.config_trials(wf, n_configs) + list(extra_trials or [])
-        pbo, trial_sr = None, None
+        join the random parameter draws as the K configurations compared:
+        their average pairwise correlation gives the effective number of
+        trials for the DSR and their returns form the CSCV matrix.  With no
+        tuning and no other variants (K = 1) nothing was selected: N_eff = 1,
+        SR_0 = 0 and the CSCV statistics are not applicable.
+
+        ``n_tuned`` is the number of parameters the optimiser moves for the
+        configuration being reported (defaults to this runner's search space)."""
+        draws = self.config_trials(wf, n_configs)
+        trials = draws + list(extra_trials or [])
+        pbo, trial_sr, rho_bar = None, None, 0.0
+
+        def cscv(results: list[BacktestResult]) -> dict | None:
+            M = returns_matrix(results)
+            return cscv_pbo(M, 16) if (np.abs(M).sum(axis=0) > 0).sum() >= 2 and len(M) >= 64 else None
+
         if len(trials) >= 2:
             M = returns_matrix(trials)
-            active = np.abs(M).sum(axis=0) > 0
-            pbo = cscv_pbo(M, 16) if active.sum() >= 2 and len(M) >= 64 else None
             trial_sr = np.array([sharpe_per_period(M[:, j]) for j in range(M.shape[1])])
+            rho_bar = average_pairwise_correlation(M)
+            full = cscv(trials)
+            if full is not None:
+                # the loss probability of the in-sample winner is taken over everything compared;
+                # the rank statistic only over parameter draws of THIS configuration, where an
+                # in-sample ranking is what the optimiser actually used (module variants form a
+                # heterogeneous set in which a three-trade variant can be the "in-sample best")
+                pbo = {"prob_oos_loss": full["prob_oos_loss"], "n_combinations": full["n_combinations"],
+                       "n_configs": full["n_configs"], "is_oos_slope": full["is_oos_slope"],
+                       "pbo": None, "is_sharpe_iqr": None, "n_rank_configs": 0}
+                rank = cscv(draws) if len(draws) >= 2 else None
+                if rank is not None:
+                    pbo |= {"pbo": rank["pbo"], "is_sharpe_iqr": rank["is_sharpe_iqr"], "n_rank_configs": len(draws)}
         tuned = list(self.space)
+        n_tuned = len(tuned) if n_tuned is None else n_tuned
         info = {
             "modules": ", ".join(wf.flags.enabled()) or "baseline only",
             "regime model": wf.flags.regime_model if wf.flags.regime_gate else "n/a",
@@ -413,12 +437,13 @@ class PurgedWalkForwardRunner:
             "tuned parameters": ", ".join(tuned) if tuned else "none (fixed canonical priors)",
             "Optuna trials per fold": wf.config.n_trials if tuned else 0,
             "backtests evaluated in search": wf.n_evaluations,
-            "configurations compared (DSR / PBO trials)": len(trials) if len(trials) >= 2 else "1 (no selection)",
+            "configurations compared (K)": len(trials) if len(trials) >= 2 else "1 (no selection)",
             "instrument": self.ctx.config.instrument.name,
             "initial equity": f"{self.ctx.config.initial_equity:,.0f} {self.ctx.config.account_ccy}",
         } | (meta or {})
         return TearsheetReporter(
             {"in_sample": wf.in_sample, "validation": wf.validation, "oos": wf.oos},
             oos_stress=wf.oos_stress, trial_sharpes=trial_sr, n_trials=len(trials) if len(trials) >= 2 else 1,
-            pbo=pbo, fold_table=wf.fold_table, mc_config=mc_config, meta=info, title=title,
+            n_tuned=n_tuned, rho_bar=rho_bar, pbo=pbo, fold_table=wf.fold_table, mc_config=mc_config, meta=info,
+            title=title,
         )

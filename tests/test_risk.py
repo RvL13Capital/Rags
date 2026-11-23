@@ -315,6 +315,31 @@ def test_points_spread_and_broker_presets():
     assert ucits_etf_costs().financing_markup == 0.0
 
 
+def test_eu_api_broker_presets():
+    from ndxswing.config import BROKER_PRESETS, broker_preset
+
+    assert BROKER_PRESETS == ("pepperstone_eu_ctrader", "capital_com_eu_rest", "ibkr_cfd", "ucits_etf")
+    pep = broker_preset("pepperstone_eu_ctrader", lot_reference_price=25_288.25)
+    assert (pep.instrument.lot_step, pep.instrument.min_lot, pep.instrument.multiplier) == (0.01, 0.01, 1.0)
+    assert (pep.costs.spread_points, pep.costs.commission_bps, pep.costs.commission_min) == (1.2, 0.0, 0.0)
+    assert (pep.costs.financing_markup, pep.costs.financing_day_count) == (0.025, 360)
+    assert broker_preset("pepperstone_eu_ctrader", lot_step=0.10).instrument.min_lot == 0.10
+    cap = broker_preset("capital_com_eu_rest")
+    assert (cap.instrument.lot_step, cap.instrument.min_lot) == (0.10, 0.10) and cap.costs == pep.costs
+    assert "0.001" in cap.note and "4.1%" in cap.note and "0.0035" in cap.note   # what the broker's page shows
+    with pytest.raises(ValueError):
+        broker_preset("oanda_eu_v20")                                            # no API for EU retail accounts
+    # the 0.10 lot clips a EUR 12.50 budget to zero for a 135 point stop; 0.35% is the smallest that carries it
+    st = AccountState(equity=5000.0, fx_quote_to_acct=0.93)
+    wide = proposal(d_stop=135.0, stop_price=24_865.0)
+    costs = cap.costs
+    assert isinstance(engine(inst=cap.instrument, costs=costs).approve(wide, st), RiskRejection)
+    ok = engine(StrategyParams(b_risk=0.0035), inst=cap.instrument, costs=costs).approve(wide, st)
+    assert ok.units == pytest.approx(0.10) and ok.planned_risk <= 17.5
+    assert isinstance(engine(StrategyParams(b_risk=0.0030), inst=cap.instrument, costs=costs).approve(wide, st),
+                      RiskRejection)
+
+
 def test_rolling_five_day_loss_halves_risk():
     cb = CircuitBreakers(RiskLimits(), 5000.0)
     eq = 5000.0

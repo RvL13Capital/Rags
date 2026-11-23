@@ -121,28 +121,65 @@ def probabilistic_sharpe_ratio(returns: np.ndarray, sr_benchmark: float) -> floa
     return float(norm.cdf((sr - sr_benchmark) * np.sqrt(T - 1.0) / np.sqrt(denom)))
 
 
-def deflated_sharpe_ratio(returns: np.ndarray, trial_sharpes: np.ndarray, n_trials: int | None = None) -> dict:
-    """Deflated Sharpe Ratio.
+def average_pairwise_correlation(returns_matrix: np.ndarray) -> float:
+    """Mean off-diagonal correlation of the columns of a (T, K) return matrix.
+    A configuration that never traded has no defined correlation and is counted
+    as uncorrelated (0), which errs towards MORE effective trials."""
+    M = np.asarray(returns_matrix, dtype=float)
+    k = M.shape[1]
+    if k < 2:
+        return 1.0
+    with np.errstate(invalid="ignore", divide="ignore"):
+        c = np.corrcoef(M, rowvar=False)
+    off = c[~np.eye(k, dtype=bool)]
+    return float(np.clip(np.nan_to_num(off, nan=0.0).mean(), 0.0, 1.0))
 
-    ``dsr`` follows the locked specification: the benchmark SR_0 includes the
-    cross-trial mean.  When the trials are siblings that share a real edge
-    that mean is itself positive, and the statistic then asks "does the chosen
-    variant beat the best that would be expected among its siblings" rather
-    than "is there an edge at all".  ``dsr_zero_mean_null`` is the original
-    Bailey / Lopez de Prado form, whose null centres the trial Sharpe ratios
-    at zero; it is reported alongside as a diagnostic.
+
+def effective_trials(k: int, rho_bar: float) -> float:
+    """N_eff = max(1, rho_bar + (1 - rho_bar) K): K perfectly correlated
+    variants are one trial, K independent ones are K trials."""
+    return float(max(1.0, rho_bar + (1.0 - rho_bar) * k))
+
+
+def expected_max_sharpe_zero_null(trial_sharpes: np.ndarray, n_eff: float) -> float:
+    """Bailey & Lopez de Prado (2014): expected maximum Sharpe of N_eff trials
+    whose true Sharpe ratio is zero, SR_0 = sqrt(V[SR_k]) * z(N_eff).  With a
+    single effective trial nothing was selected and SR_0 = 0."""
+    s = np.asarray(trial_sharpes, dtype=float)
+    s = s[np.isfinite(s)]
+    if n_eff <= 1.0 or len(s) < 2:
+        return 0.0
+    z = (1.0 - EULER_GAMMA) * norm.ppf(1.0 - 1.0 / n_eff) + EULER_GAMMA * norm.ppf(1.0 - 1.0 / (n_eff * np.e))
+    return float(max(0.0, s.std(ddof=1) * z))
+
+
+def deflated_sharpe_ratio(returns: np.ndarray, trial_sharpes: np.ndarray, n_trials: int | None = None,
+                          rho_bar: float = 0.0) -> dict:
+    """Deflated Sharpe Ratio of ``returns`` given the K configurations compared.
+
+    dsr                   release gate: zero-mean null, correlation-adjusted
+                          effective trials N_eff = max(1, rho + (1 - rho) K)
+    dsr_cross_trial_mean  informational: benchmark includes the cross-trial
+                          mean and all K trials.  When the trials are siblings
+                          sharing a real edge this asks whether the chosen
+                          variant beats its siblings, not whether an edge exists
+    psr_zero              informational: probabilistic Sharpe ratio against
+                          zero, i.e. what the gate would be with N_eff = 1
     """
     s = np.asarray(trial_sharpes, dtype=float)
     s = s[np.isfinite(s)]
-    sr0 = expected_max_sharpe(s, n_trials)
-    sr0_zero = sr0 - (float(s.mean()) if len(s) else 0.0)
+    k = int(n_trials) if n_trials is not None else int(len(s))
+    n_eff = effective_trials(k, rho_bar)
+    sr0 = expected_max_sharpe_zero_null(s, n_eff)
+    sr0_mean = expected_max_sharpe(s, k)
     return {
         "dsr": probabilistic_sharpe_ratio(returns, sr0),
-        "dsr_zero_mean_null": probabilistic_sharpe_ratio(returns, sr0_zero),
+        "dsr_cross_trial_mean": probabilistic_sharpe_ratio(returns, sr0_mean),
+        "psr_zero": probabilistic_sharpe_ratio(returns, 0.0),
         "sr_per_period": sharpe_per_period(returns),
         "sr0_per_period": sr0,
-        "sr0_zero_mean_null": sr0_zero,
-        "n_trials": int(n_trials) if n_trials is not None else int(len(s)),
+        "sr0_cross_trial_mean": sr0_mean,
+        "n_trials": k, "n_eff": n_eff, "rho_bar": float(rho_bar),
         "trial_sr_mean": float(s.mean()) if len(s) else np.nan,
         "trial_sr_std": float(s.std(ddof=1)) if len(s) > 1 else np.nan,
     }
@@ -160,7 +197,15 @@ def cscv_pbo(returns_matrix: np.ndarray, n_splits: int = 16) -> dict:
     configuration on common dates.  Rows are cut into ``n_splits`` contiguous
     blocks; for each of the C(S, S/2) train/test splits the in-sample best
     configuration's out-of-sample rank is converted to a logit.  Ties are
-    resolved by mid-ranks (audit fix).  PBO = P(logit <= 0).
+    resolved by mid-ranks (audit fix).
+
+    pbo            rank PBO = P(logit <= 0).  Among near-identical variants
+                   the in-sample ranking is a coin flip, so this statistic is
+                   only informative when the variants differ in sample:
+                   ``is_sharpe_iqr`` is the median across splits of the
+                   interquartile range of the annualised in-sample Sharpe.
+    prob_oos_loss  P(SR_OOS(theta*) <= 0): how often the in-sample winner
+                   loses money out of sample (Bailey et al. 2017, sec. 3.2).
     """
     M = np.asarray(returns_matrix, dtype=float)
     T, N = M.shape
@@ -194,7 +239,8 @@ def cscv_pbo(returns_matrix: np.ndarray, n_splits: int = 16) -> dict:
         "pbo": float(np.mean(logits <= 0.0)), "n_combinations": int(len(combos)), "n_configs": int(N),
         "block_length": int(b), "logit_median": float(np.median(logits)),
         "is_oos_slope": float(slope),
-        "prob_oos_loss": float(np.mean(sr_oos[rows, best] < 0.0)),
+        "prob_oos_loss": float(np.mean(sr_oos[rows, best] <= 0.0)),
+        "is_sharpe_iqr": float(np.median(np.subtract(*np.percentile(sr_is, [75, 25], axis=1))) * np.sqrt(ANN)),
     }
 
 

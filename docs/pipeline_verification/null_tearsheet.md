@@ -16,8 +16,8 @@ Data sources: SYNTHETIC-PIPELINE-VERIFICATION
 | tuned parameters | donchian_window, atr_stop_mult, max_hold_days |
 | Optuna trials per fold | 40 |
 | backtests evaluated in search | 2595 |
-| configurations compared (DSR / PBO trials) | 64 |
-| instrument | NDX-microCFD-0.01 |
+| configurations compared (K) | 64 |
+| instrument | Pepperstone-EU-cTrader-NAS100-0.01 |
 | initial equity | 5,000 EUR |
 
 ## Performance by segment (never pooled)
@@ -60,21 +60,24 @@ Validation is the span the hyper-parameters were selected on (optimistic by cons
 | Gate | Value | Rule | Status |
 |---|---:|---|---|
 | OOS net Sharpe | -0.2645 | > 0.80 | FAIL |
-| Deflated Sharpe Ratio | 0.0142 | > 0.95 | FAIL |
-| PBO (CSCV) | 0.5657 | < 0.25 | FAIL |
+| Deflated Sharpe Ratio (zero-mean null, N_eff) | 0.0241 | > 0.95 | FAIL |
+| CSCV P(OOS loss of IS-best) | 0.5417 | < 15% | FAIL |
+| CSCV rank PBO | 0.5657 | < 0.25 when tuned and IS Sharpe IQR > 0.25 | FAIL |
 | OOS net profit factor | 0.8708 | > 1.20 | FAIL |
 | OOS net P&L under 1.5x costs | -176.3008 | > 0 | FAIL |
-| OOS maximum drawdown | 0.0381 | < 10% | PASS |
+| OOS maximum drawdown (true high-water mark) | 0.0381 | < 10% | PASS |
 | Monte Carlo P(DD >= 20%) | 0.0002 | < 2% | PASS |
-| Profitable walk-forward OOS folds | 0.4524 | >= 70% | FAIL |
-| Independent OOS trades | 199 | > 200 | FAIL |
+| Profitable walk-forward OOS folds | 0.4524 | >= 65% | FAIL |
+| Independent OOS trades | 199 | >= 150 | PASS |
 
 Circuit breakers in the OOS run: 0 pause(s) at -8%; hard deactivation at -10% of the all-time peak: none. Maximum drawdown is always measured from the un-rebased high-water mark.
 
 ## Overfitting diagnostics
 
-- Deflated Sharpe Ratio: **0.0142** (per-period SR -0.0167 vs expected maximum under the null SR0 0.0259, N = 64 trials, cross-trial mean -0.0002, std 0.0110). With the null centred at zero instead (original Bailey / Lopez de Prado form, SR0 0.0260) it is 0.0139; the gate uses the first figure.
-- PBO (CSCV, 12870 splits of 64 configurations): **0.566**; IS->OOS Sharpe slope -1.013; P(OOS loss of IS-best) 0.542
+- **Gate.** DSR, zero-mean null: **0.0241** (per-period SR -0.0167 vs SR0 0.0217; K = 64 configurations compared, average pairwise correlation 0.64, N_eff = 23.6; cross-trial Sharpe std 0.0110)
+- Informational. DSR with the cross-trial mean in the benchmark and all K trials: 0.0142 (SR0 0.0259, cross-trial mean -0.0002). Probabilistic Sharpe ratio against zero (N_eff = 1): 0.1951.
+- CSCV over 12870 splits of the 64 configurations compared: P(OOS loss of the in-sample winner) **0.542**; IS->OOS Sharpe slope -1.013
+- Rank PBO over 64 parameter draws of this configuration: 0.566; in-sample Sharpe IQR across the draws 0.31
 
 ## OOS under 1.5x spread / slippage / commission / financing markup
 

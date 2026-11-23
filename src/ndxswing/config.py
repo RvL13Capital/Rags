@@ -144,9 +144,9 @@ class CostModel:
 
 
 def micro_cfd_costs() -> CostModel:
-    """ASSUMPTION (user-supplied schedule for an API micro-lot CFD broker, not
-    verified against a published rate card): 1.2 index points spread, no
-    ticket fee, financing at benchmark +/- 2.5% p.a."""
+    """ASSUMPTION (schedule supplied for the EU API CFD brokers, not verified
+    against a published rate card): 1.2 index points spread, no ticket fee,
+    financing at the USD overnight rate +/- 2.5% p.a., ACT/360."""
     return CostModel(spread_points=1.2, slippage_bps=1.0, commission_bps=0.0, commission_min=0.0,
                      financing_markup=0.025)
 
@@ -163,6 +163,74 @@ def ucits_etf_costs() -> CostModel:
     """ASSUMPTION: 6 bp quoted spread in extended retail hours, 2 bp slippage
     on client-side stop/market orders, EUR 1.00 flat ticket, no financing."""
     return CostModel(spread_bps=6.0, slippage_bps=2.0, commission_bps=0.0, commission_min=1.0, financing_markup=0.0)
+
+
+# --------------------------------------------------------------------------- #
+# Broker presets
+# --------------------------------------------------------------------------- #
+#
+# Only brokers that offer EU retail clients both a fractional index CFD and a
+# programmatic API are useful for a EUR 5,000 account:
+#
+# * OANDA is NOT one of them: OANDA's v20 REST API documentation excludes the
+#   EU entity (OANDA TMS Brokers S.A.), so there is no API for EU retail
+#   accounts.
+# * IBKR's IBUST100 trades in whole units of 1 x index and sizes to zero.
+#
+# The two CFD presets below carry the schedule supplied for this project.
+# Nothing in them has been confirmed against the brokers' instrument
+# specifications; see ``BrokerPreset.note`` for what a public page showed.
+
+
+def pepperstone_eu_ctrader(lot_step: float = 0.01, lot_reference_price: float | None = None) -> InstrumentSpec:
+    """Pepperstone EU via the cTrader Open API: USD 1 per point per lot."""
+    return replace(ndx_fractional_cfd(lot_step, lot_reference_price), name=f"Pepperstone-EU-cTrader-NAS100-{lot_step:g}")
+
+
+def capital_com_eu_rest(lot_step: float = 0.10, lot_reference_price: float | None = None) -> InstrumentSpec:
+    """Capital.com EU via its REST API: USD 1 per point per contract."""
+    return replace(ndx_fractional_cfd(lot_step, lot_reference_price), name=f"Capital.com-EU-REST-US100-{lot_step:g}")
+
+
+@dataclass(frozen=True)
+class BrokerPreset:
+    instrument: InstrumentSpec
+    costs: CostModel
+    note: str
+
+
+def broker_preset(name: str, lot_step: float | None = None, lot_reference_price: float | None = None,
+                  etf_price_ratio: float = 0.0022) -> BrokerPreset:
+    """Instrument + cost schedule for one execution venue.  Financing is the
+    USD overnight rate (EFFR / SOFR) plus or minus the markup, ACT/360."""
+    if name == "pepperstone_eu_ctrader":
+        return BrokerPreset(
+            pepperstone_eu_ctrader(0.01 if lot_step is None else lot_step, lot_reference_price), micro_cfd_costs(),
+            "Supplied schedule: 1.2 pt spread, no index commission, ARR +/- 2.5%, minimum 0.01 lot. Pepperstone "
+            "states it charges no commission on index CFDs and advertises NAS100 spreads from about 1.0 pt; the "
+            "only minimum-size figure found (a third-party page) says 0.1 lot. Confirm the minimum in the cTrader "
+            "symbol specification and rerun with --lot-step 0.1 if it applies.")
+    if name == "capital_com_eu_rest":
+        return BrokerPreset(
+            capital_com_eu_rest(0.10 if lot_step is None else lot_step, lot_reference_price), micro_cfd_costs(),
+            "Supplied schedule: 1.2 pt spread, no commission, ARR +/- 2.5%, minimum and step 0.10. Capital.com's own "
+            "EU market page lists a minimum traded quantity of 0.001 and a long overnight adjustment of -0.02226% "
+            "of position value per day, about 8.0% a year or roughly the overnight rate + 4.1%. To model the page "
+            "instead: --lot-step 0.001 --financing-markup 0.041. With a 0.10 lot, 0.25% risk is clipped to zero "
+            "for typical stops; --b-risk 0.0035 is the smallest budget that carries a 1.5 ATR stop of about 135 "
+            "points.")
+    if name == "ibkr_cfd":
+        return BrokerPreset(ibkr_ibust100(lot_reference_price), ibkr_cfd_costs(),
+                            "IBKR schedule (0.010%, USD 1.00 minimum, benchmark +/- 1.5%, whole units) checked "
+                            "Nov 2026; 1.0 pt spread assumed. Sizes to zero on EUR 5,000.")
+    if name == "ucits_etf":
+        return BrokerPreset(ucits_ndx_etf(etf_price_ratio, lot_reference_price), ucits_etf_costs(),
+                            "Assumptions: 6 bp spread, 2 bp slippage, EUR 1.00 ticket, no financing, long only, "
+                            "client-side stops. Set the price ratio for the actual share class.")
+    raise ValueError(f"unknown broker preset {name!r}; choose from {BROKER_PRESETS}")
+
+
+BROKER_PRESETS: tuple[str, ...] = ("pepperstone_eu_ctrader", "capital_com_eu_rest", "ibkr_cfd", "ucits_etf")
 
 
 # --------------------------------------------------------------------------- #

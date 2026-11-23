@@ -30,10 +30,7 @@ import pandas as pd
 
 from ..analytics.montecarlo import MonteCarloConfig
 from ..analytics.stats import compute_metrics
-from ..config import (
-    BacktestConfig, ModuleFlags, StrategyParams, ibkr_cfd_costs, ibkr_ibust100, micro_cfd_costs, ndx_fractional_cfd,
-    ucits_etf_costs, ucits_ndx_etf,
-)
+from ..config import BacktestConfig, ModuleFlags, StrategyParams, broker_preset
 from ..data.synthetic import SyntheticSpec, generate_synthetic_market
 from ..features.pipeline import FeatureConfig, FeatureSet, load_or_build_feature_set
 from .ablation import AblationConfig, SequentialAblationEngine
@@ -61,7 +58,8 @@ def _market(edge: float, end: str, cache: Path, seed: int) -> tuple[dict, Featur
 
 
 def _context(m: dict, fs: FeatureSet) -> BacktestContext:
-    cfg = BacktestConfig(instrument=ndx_fractional_cfd(0.01, REFERENCE_INDEX_LEVEL), costs=_relative(micro_cfd_costs()))
+    pre = broker_preset("pepperstone_eu_ctrader", 0.01, REFERENCE_INDEX_LEVEL)
+    cfg = BacktestConfig(instrument=pre.instrument, costs=_relative(pre.costs))
     return BacktestContext(fs, cfg, m["fx"], m["rate"], m["events"])
 
 
@@ -72,11 +70,19 @@ def vehicle_comparison(m: dict, fs: FeatureSet, b_risk: float = 0.0025) -> pd.Da
     hourly = fs.hourly.drop(columns=[c for c in ("spread_rel", "spread_med") if c in fs.hourly])
     bare = FeatureSet(hourly, fs.daily, fs.config, fs.source)
     ref = REFERENCE_INDEX_LEVEL
+
+    def pre(name: str, label: str, lot: float | None = None, **cost_kw: float) -> tuple:
+        b = broker_preset(name, lot, ref)
+        return label, b.instrument, replace(b.costs, **cost_kw)
+
     vehicles = [
-        ("Micro CFD, 0.01 lot", ndx_fractional_cfd(0.01, ref), micro_cfd_costs()),
-        ("Micro CFD, 0.1 lot", ndx_fractional_cfd(0.1, ref), micro_cfd_costs()),
-        ("IBKR IBUST100, 1 unit", ibkr_ibust100(ref), ibkr_cfd_costs()),
-        ("UCITS ETF, long only", ucits_ndx_etf(lot_reference_price=ref), ucits_etf_costs()),
+        pre("pepperstone_eu_ctrader", "Pepperstone EU cTrader, 0.01 lot", 0.01),
+        pre("pepperstone_eu_ctrader", "Pepperstone EU cTrader, 0.10 lot", 0.10),
+        pre("capital_com_eu_rest", "Capital.com EU, 0.10 lot (as specified)"),
+        pre("capital_com_eu_rest", "Capital.com EU, 0.001 lot, +4.1% financing (its own page)", 0.001,
+            financing_markup=0.041),
+        pre("ibkr_cfd", "IBKR IBUST100, 1 unit"),
+        pre("ucits_etf", "UCITS ETF, long only"),
     ]
     rows = []
     params = StrategyParams(b_risk=b_risk)
@@ -111,6 +117,33 @@ def detection_sensitivity(end: str, seed: int, strengths: tuple[float, ...] = (0
                      "trades": met["n_trades"], "net_pnl": met["net_pnl"],
                      "profitable_folds": float((wf.fold_table["oos_net_pnl"] > 0).mean())})
     return pd.DataFrame(rows)
+
+
+def _oc_one(args: tuple) -> dict:
+    edge, seed, end = args
+    from ..features.pipeline import build_feature_set
+
+    cheap = FeatureConfig(with_regime=False, with_hurst=False, with_garch=False, with_evt=False, with_vpin=False)
+    m = generate_synthetic_market(SyntheticSpec(edge=edge, end=end, seed=seed))
+    fs = build_feature_set(m["hourly"], cheap, source=m["source"], n_jobs=1)
+    runner = PurgedWalkForwardRunner(_context(m, fs), ModuleFlags.baseline(), WalkForwardConfig(tune="none"))
+    rep = runner.tearsheet(runner.run(), mc_config=MonteCarloConfig(n_paths=2000)).build()
+    gates = {g["gate"]: g["status"] for g in rep["gates"]}
+    return {"edge": edge, "seed": seed, "sharpe": rep["segments"]["oos"]["sharpe"],
+            "all_pass": all(v == "PASS" or v.startswith("N/A") for v in gates.values()),
+            "failed": [k for k, v in gates.items() if v == "FAIL"]}
+
+
+def gate_operating_characteristics(end: str, seeds: range = range(100, 140), strengths: tuple[float, ...] = (0.0, 2.0),
+                                   jobs: int = 4) -> pd.DataFrame:
+    """How often does the full release battery pass on independent synthetic
+    histories with no edge (false-positive rate) and with the planted edge
+    (power)?  Fixed-prior baseline, no tuning, so K = 1 and N_eff = 1."""
+    import multiprocessing as mp
+
+    tasks = [(k, sd, end) for k in strengths for sd in seeds]
+    with mp.get_context("fork").Pool(jobs) as pool:
+        return pd.DataFrame(pool.map(_oc_one, tasks, chunksize=1))
 
 
 def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int = 4, mc_paths: int = 10_000,
@@ -149,14 +182,15 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
     abl.save(out / "planted")
     run1 = PurgedWalkForwardRunner(ctx1, abl.final_flags, wf_cfg)
     ts1 = run1.tearsheet(abl.final, extra_trials=abl.variant_oos, mc_config=mc,
-                         meta={"ablation variants evaluated": abl.n_variants},
+                         meta={"ablation variants evaluated": abl.n_variants,
+                               "largest search space in any variant": abl.max_tuned},
                          title="PIPELINE VERIFICATION - planted-edge synthetic data")
     rep1 = ts1.build()
     ts1.save(out / "planted")
 
     # ---- 3. vehicles
     print("[verify] PLANTED-EDGE data: vehicle comparison", flush=True)
-    veh = {b: vehicle_comparison(m1, fs1, b) for b in (0.0025, 0.0050)}
+    veh = {b: vehicle_comparison(m1, fs1, b) for b in (0.0025, 0.0035, 0.0050)}
     for b, df in veh.items():
         df.to_csv(out / f"vehicles_risk_{int(b * 1e4)}bp.csv", index=False)
 
@@ -164,21 +198,38 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
     sens = detection_sensitivity(end, seed)
     sens.to_csv(out / "detection_sensitivity.csv", index=False)
 
+    print("[verify] operating characteristics of the release gates", flush=True)
+    oc = gate_operating_characteristics(end, jobs=jobs)
+    oc.to_json(out / "gate_operating_characteristics.json", orient="records", indent=1)
+
     s0, s1 = rep0["segments"]["oos"], rep1["segments"]["oos"]
     planted_seen = s1["sharpe"] > s0["sharpe"] + 0.5 and s1["net_pnl"] > 0 and s1["profit_factor"] > 1.2
     v25 = veh[0.0025].set_index("vehicle")
-    sizing_ok = v25.loc["IBKR IBUST100, 1 unit", "trades"] == 0 and v25.loc["Micro CFD, 0.01 lot", "trades"] > 0
+    sizing_ok = (v25.loc["IBKR IBUST100, 1 unit", "trades"] == 0
+                 and v25.loc["Pepperstone EU cTrader, 0.01 lot", "trades"] > 0)
     ok = null_rejected and planted_seen and sizing_ok
 
     def line(name: str, s: dict, rep: dict) -> str:
         d = rep["dsr"] or {}
-        p = rep["pbo"]["pbo"] if rep["pbo"] else float("nan")
+        p = rep["pbo"] or {}
+        nan = float("nan")
+        n_fail = sum(g["status"] == "FAIL" for g in rep["gates"])
         return (f"| {name} | {s['sharpe']:.2f} | {s['profit_factor']:.2f} | {100 * s['max_drawdown']:.2f}% | "
-                f"{s['n_trades']} | {s['net_pnl']:.2f} | {d.get('dsr', float('nan')):.3f} | "
-                f"{d.get('dsr_zero_mean_null', float('nan')):.3f} | {p:.3f} |")
+                f"{s['n_trades']} | {s['net_pnl']:.2f} | {d.get('dsr', nan):.3f} | {d.get('n_eff', nan):.1f} | "
+                f"{d.get('dsr_cross_trial_mean', nan):.3f} | {p.get('prob_oos_loss', nan):.3f} | "
+                f"{'n/a' if p.get('pbo') is None else format(p['pbo'], '.3f')} | {n_fail} of {len(rep['gates'])} |")
 
     gates1 = {g["gate"]: g["status"] for g in rep1["gates"]}
     failed1 = [k for k, v in gates1.items() if v == "FAIL"]
+
+    def oc_rows() -> list[str]:
+        L = ["| Planted strength | Histories | Pass every gate | Median OOS Sharpe | Gates failed most often |",
+             "|---:|---:|---:|---:|---|"]
+        for k, grp in oc.groupby("edge"):
+            counts = pd.Series([g for f in grp["failed"] for g in f]).value_counts()
+            top = "; ".join(f"{name} ({n})" for name, n in counts.head(3).items()) or "none"
+            L.append(f"| {k:g} | {len(grp)} | {int(grp['all_pass'].sum())} | {grp['sharpe'].median():.2f} | {top} |")
+        return L
 
     def vehicle_table(df: pd.DataFrame) -> list[str]:
         L = ["| Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | "
@@ -195,9 +246,9 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         f"validation / {wf_cfg.oos_months}m OOS; {trials} Optuna trials per fold where anything is tuned; "
         f"{mc_paths} Monte Carlo paths; lots normalised to index level {REFERENCE_INDEX_LEVEL:,.2f}; "
         f"runtime {time.time() - t0:.0f}s.", "",
-        "| Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (spec) | "
-        "DSR (zero-mean null) | PBO |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (gate) | N_eff | "
+        "DSR (cross-trial mean, info) | CSCV P(OOS loss) | Rank PBO | Gates failed |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         line("Null (martingale), full geometry tuned", s0, rep0),
         line(f"Planted edge x{planted_edge:g} (after ablation, thresholds only)", s1, rep1), "",
         "## Checks", "",
@@ -207,13 +258,15 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         f"profit factor above 1.2): **{'PASS' if planted_seen else 'FAIL'}**",
         f"- Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, 0.01-lot CFD does): "
         f"**{'PASS' if sizing_ok else 'FAIL'}**", "",
-        "## Power of the release gates", "",
-        f"The positive control is a real edge by construction, yet it fails {len(failed1)} of {len(gates1)} gates: "
-        f"{', '.join(failed1) or 'none'}. With about {s1['n_trades'] / s1['years']:.0f} trades a year the specified "
-        "battery cannot confirm an edge of this size on roughly ten OOS years. Two of the failures are structural: "
-        "the specified DSR adds the cross-trial mean to its benchmark, so sibling variants that all share the edge "
-        "raise the bar to their own level; and CSCV-PBO measures whether the in-sample ranking of the compared "
-        "variants persists, which is close to a coin flip when the variants are near-identical.", "",
+        "## Operating characteristics of the release gates", "",
+        f"On this run the positive control fails {len(failed1)} of {len(gates1)} gates"
+        f"{': ' + ', '.join(failed1) if failed1 else ''}. One history says little, so the fixed-prior baseline was "
+        "also run on independent synthetic histories (different seeds, nothing tuned, K = 1), each through the "
+        "complete battery:", "",
+        *oc_rows(), "",
+        "The first row estimates the false-positive rate of the battery, the second its power against an edge of "
+        "this size. Thresholds: Sharpe > 0.80, DSR > 0.95, P(OOS loss) < 15%, profit factor > 1.20, positive under "
+        "1.5x costs, max drawdown < 10%, Monte Carlo P(DD >= 20%) < 2%, profitable folds >= 65%, trades >= 150.", "",
         "## How strong must an edge be to be seen?", "",
         "Fixed-prior baseline, no tuning, stitched walk-forward OOS, same seed. Strength 1 is a drift of 0.12% a day "
         "inside trend regimes against roughly 0.9% daily volatility; the positive control above uses strength "
@@ -228,6 +281,7 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         "Full sample, default parameters, no tuning. Spreads are each vehicle's preset, expressed at the reference "
         "index level. The ETF track takes long signals only and carries EURUSD on its notional.", "",
         "Risk per trade 0.25% (EUR 12.50):", "", *vehicle_table(veh[0.0025]), "",
+        "Risk per trade 0.35% (EUR 17.50):", "", *vehicle_table(veh[0.0035]), "",
         "Risk per trade 0.50% (EUR 25.00):", "", *vehicle_table(veh[0.0050]), "",
         "Full tearsheets: `null_tearsheet.md`, `planted_tearsheet.md`.", "",
     ]

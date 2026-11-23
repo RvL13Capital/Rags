@@ -21,8 +21,11 @@ Profit factor and ES_0.99 lifts are reported alongside.  Special cases:
   the forecast sign is significant (p < 0.05) on non-overlapping horizons;
 * modules whose input data is missing are reported as skipped, never faked.
 
-Because retention decisions look at OOS results, every variant counts as a
-trial in the Deflated Sharpe Ratio.  ``holdout_start`` reserves a final period
+Because retention decisions look at OOS results, the OOS curve of every
+variant is one of the K configurations compared: their average pairwise
+correlation sets the effective number of trials in the Deflated Sharpe Ratio
+and their returns form the CSCV matrix.  This holds even when no parameter is
+tuned - choosing among module variants is still selection.  ``holdout_start`` reserves a final period
 that no ablation decision ever sees.
 """
 
@@ -65,6 +68,7 @@ class AblationResult:
     holdout: dict | None
     trade_floor: int
     variant_oos: list   # stitched OOS result of every variant examined (trials for DSR / PBO)
+    max_tuned: int = 0  # largest number of parameters the optimiser moved in any variant
 
     def to_markdown(self) -> str:
         t = self.table
@@ -116,7 +120,9 @@ class SequentialAblationEngine:
         )
 
     def _walk_forward(self, flags: ModuleFlags) -> tuple[WalkForwardResult, dict]:
-        wf = PurgedWalkForwardRunner(self.ctx, flags, self.wf_cfg, self.base, end=self._end).run()
+        runner = PurgedWalkForwardRunner(self.ctx, flags, self.wf_cfg, self.base, end=self._end)
+        self._max_tuned = max(getattr(self, "_max_tuned", 0), len(runner.space))
+        wf = runner.run()
         return wf, compute_metrics(wf.oos)
 
     def _pt_test(self, wf: WalkForwardResult) -> dict:
@@ -231,4 +237,5 @@ class SequentialAblationEngine:
         return AblationResult(
             table=pd.DataFrame(rows), final_flags=flags, baseline=base_wf, final=final_wf, n_variants=n_variants,
             pt_test=pt, holdout=holdout, trade_floor=floor, variant_oos=variant_oos,
+            max_tuned=self._max_tuned,
         )

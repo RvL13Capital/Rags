@@ -117,6 +117,8 @@ def test_pbo_noise_vs_genuine_edge_and_ties():
     tied = np.zeros((T, 6)); tied[:, 0] = noise[:, 0]; tied[:, 1] = noise[:, 0]   # duplicates and no-trade configs
     out = st.cscv_pbo(tied, 8)
     assert 0.0 <= out["pbo"] <= 1.0 and np.isfinite(out["logit_median"])
+    assert out["is_sharpe_iqr"] >= 0.0 and 0.0 <= out["prob_oos_loss"] <= 1.0
+    assert st.cscv_pbo(edge, 16)["prob_oos_loss"] < 0.05 and st.cscv_pbo(edge, 16)["is_sharpe_iqr"] > 0.25
     with pytest.raises(ValueError):
         st.cscv_pbo(noise, 7)
 
@@ -212,9 +214,11 @@ def _ts(source: str, sharpe_boost: float = 0.0, **kw) -> TearsheetReporter:
     folds = pd.DataFrame({"fold": [0, 1, 2, 3], "oos_start": pd.bdate_range("2020-01-01", periods=4),
                           "oos_end": pd.bdate_range("2020-06-01", periods=4), "val_j": 1.0, "val_sharpe": 1.0,
                           "oos_sharpe": 0.5, "oos_net_pnl": [10.0, -5.0, 8.0, 3.0], "oos_trades": 10})
+    kw.setdefault("n_tuned", 2)
+    kw.setdefault("pbo", {"pbo": 0.2, "n_combinations": 12870, "n_configs": 64, "is_oos_slope": 0.1,
+                          "prob_oos_loss": 0.05, "is_sharpe_iqr": 0.6})
     return TearsheetReporter(seg, oos_stress=mk(0.0001 + sharpe_boost), trial_sharpes=rng.normal(0, 0.03, 64),
-                             n_trials=640, pbo={"pbo": 0.2, "n_combinations": 12870, "n_configs": 64,
-                                                "is_oos_slope": 0.1, "prob_oos_loss": 0.3},
+                             n_trials=64, rho_bar=0.2,
                              fold_table=folds, mc_config=mc.MonteCarloConfig(n_paths=500), **kw)
 
 
@@ -242,14 +246,92 @@ def test_tearsheet_segments_are_separate_and_paper_live_are_empty(tmp_path):
 def test_gates_and_verdicts():
     weak = _ts("IBKR TRADES").build()
     gates = {g["gate"]: g for g in weak["gates"]}
-    assert len(gates) == 9
+    assert list(gates) == [
+        "OOS net Sharpe", "Deflated Sharpe Ratio (zero-mean null, N_eff)", "CSCV P(OOS loss of IS-best)",
+        "CSCV rank PBO", "OOS net profit factor", "OOS net P&L under 1.5x costs",
+        "OOS maximum drawdown (true high-water mark)", "Monte Carlo P(DD >= 20%)",
+        "Profitable walk-forward OOS folds", "Independent OOS trades",
+    ]
     assert gates["OOS net Sharpe"]["status"] == "FAIL"
-    assert gates["PBO (CSCV)"]["status"] == "PASS" and gates["PBO (CSCV)"]["value"] == 0.2
+    assert gates["CSCV P(OOS loss of IS-best)"]["status"] == "PASS" and gates["CSCV rank PBO"]["status"] == "PASS"
     assert gates["Profitable walk-forward OOS folds"]["value"] == 0.75
     assert weak["verdict"].startswith("NOT READY FOR LIVE DEPLOYMENT")
     strong = _ts("IBKR TRADES", sharpe_boost=0.0014).build()
     assert all(g["status"] == "PASS" for g in strong["gates"]), strong["gates"]
     assert "eligible for Phase 3 paper trading" in strong["verdict"] and "NOT READY FOR LIVE" in strong["verdict"]
+    assert strong["dsr"]["n_eff"] == pytest.approx(0.2 + 0.8 * 64)
+
+
+def test_recalibrated_thresholds_sit_exactly_where_specified():
+    T = TearsheetReporter
+    assert (T.MIN_SHARPE, T.MIN_PF, T.MAX_DD) == (0.80, 1.20, 0.10)             # locked
+    assert (T.MIN_DSR, T.MAX_OOS_LOSS, T.MAX_RANK_PBO, T.RANK_PBO_MIN_IQR) == (0.95, 0.15, 0.25, 0.25)
+    assert (T.MIN_FOLDS, T.MIN_TRADES) == (0.65, 150)
+    ts = _ts("IBKR TRADES", sharpe_boost=0.0014)
+    rep = ts.build()
+    # 14 of 21 folds is 66.7% and passes; 13 of 21 is 61.9% and does not
+    for wins, ok in ((14, "PASS"), (13, "FAIL")):
+        folds = {"n_folds": 21, "profitable_share": wins / 21, "table": []}
+        g = {x["gate"]: x["status"] for x in ts._gates(rep["segments"]["oos"], rep["dsr"], rep["oos_cost_stress"], folds)}
+        assert g["Profitable walk-forward OOS folds"] == ok
+    oos = dict(rep["segments"]["oos"])
+    for n, ok in ((150, "PASS"), (149, "FAIL")):
+        oos["n_trades"] = n
+        g = {x["gate"]: x["status"] for x in ts._gates(oos, rep["dsr"], rep["oos_cost_stress"], rep["folds"])}
+        assert g["Independent OOS trades"] == ok
+
+
+def test_cscv_gates_depend_on_selection_and_on_variant_dispersion():
+    def gates(**kw):
+        return {g["gate"]: g["status"] for g in _ts("IBKR TRADES", sharpe_boost=0.0014, **kw).build()["gates"]}
+
+    base = {"n_combinations": 12870, "n_configs": 8, "is_oos_slope": 0.1}
+    # in-sample winner loses out of sample too often -> fail, whatever the rank PBO says
+    g = gates(pbo=base | {"pbo": 0.1, "prob_oos_loss": 0.20, "is_sharpe_iqr": 0.6})
+    assert g["CSCV P(OOS loss of IS-best)"] == "FAIL" and g["CSCV rank PBO"] == "PASS"
+    # tuned and the variants differ in sample: rank PBO is enforced
+    g = gates(pbo=base | {"pbo": 0.40, "prob_oos_loss": 0.05, "is_sharpe_iqr": 0.6})
+    assert g["CSCV rank PBO"] == "FAIL"
+    # homogeneous plateau: a high rank PBO is not held against the strategy
+    g = gates(pbo=base | {"pbo": 0.70, "prob_oos_loss": 0.05, "is_sharpe_iqr": 0.10})
+    assert g["CSCV rank PBO"].startswith("N/A (IS Sharpe IQR 0.10") and g["CSCV P(OOS loss of IS-best)"] == "PASS"
+    # nothing tuned (module variants only): rank PBO not applicable, loss probability still gated
+    g = gates(n_tuned=0, pbo=base | {"pbo": 0.70, "prob_oos_loss": 0.05, "is_sharpe_iqr": 0.6})
+    assert g["CSCV rank PBO"] == "N/A (nothing tuned)" and g["CSCV P(OOS loss of IS-best)"] == "PASS"
+    g = gates(n_tuned=0, pbo=base | {"pbo": 0.70, "prob_oos_loss": 0.30, "is_sharpe_iqr": 0.6})
+    assert g["CSCV P(OOS loss of IS-best)"] == "FAIL"
+
+
+def test_effective_trials_and_zero_mean_null():
+    assert st.effective_trials(15, 1.0) == 1.0 and st.effective_trials(15, 0.0) == 15.0
+    assert st.effective_trials(15, 0.6) == pytest.approx(0.6 + 0.4 * 15)
+    assert st.effective_trials(1, 0.0) == 1.0
+    rng = np.random.default_rng(12)
+    common = rng.normal(0, 0.01, (2000, 1))
+    M = common + rng.normal(0, 0.005, (2000, 10))                              # ten siblings of one strategy
+    rho = st.average_pairwise_correlation(M)
+    assert rho == pytest.approx(0.8, abs=0.03)
+    assert st.average_pairwise_correlation(rng.normal(0, 0.01, (2000, 10))) < 0.05
+    idle = M.copy(); idle[:, 3] = 0.0                                          # a variant that never traded
+    assert st.average_pairwise_correlation(idle) < rho
+    s = np.array([st.sharpe_per_period(M[:, j]) for j in range(10)])
+    assert st.expected_max_sharpe_zero_null(s, 1.0) == 0.0                      # nothing selected
+    z = (1 - st.EULER_GAMMA) * norm.ppf(1 - 1 / 5.0) + st.EULER_GAMMA * norm.ppf(1 - 1 / (5.0 * np.e))
+    assert st.expected_max_sharpe_zero_null(s, 5.0) == pytest.approx(s.std(ddof=1) * z)
+    assert st.expected_max_sharpe_zero_null(s, 1.2) >= 0.0                      # never a negative hurdle
+
+    # siblings that all share a real edge: the cross-trial-mean form rejects it, the gate form does not
+    edge = M + 0.0012
+    r = edge[:, 0]
+    sr = np.array([st.sharpe_per_period(edge[:, j]) for j in range(10)])
+    d = st.deflated_sharpe_ratio(r, sr, 10, st.average_pairwise_correlation(edge))
+    assert d["dsr"] > 0.95 > d["dsr_cross_trial_mean"]
+    assert d["psr_zero"] >= d["dsr"] and d["n_eff"] == pytest.approx(rho + (1 - rho) * 10, abs=0.3)
+    # ... and neither form passes the luckiest of many independent noise series
+    noise = rng.normal(0, 0.01, (1500, 100))
+    nsr = np.array([st.sharpe_per_period(noise[:, j]) for j in range(100)])
+    lucky = st.deflated_sharpe_ratio(noise[:, nsr.argmax()], nsr, 100, st.average_pairwise_correlation(noise))
+    assert lucky["dsr"] < 0.9 and lucky["n_eff"] > 95
 
 
 def test_synthetic_data_can_never_produce_a_release_verdict():
@@ -268,9 +350,11 @@ def test_single_fixed_configuration_is_scored_against_zero():
     ts = TearsheetReporter({"oos": result_from_returns(r)}, n_trials=1, mc_config=mc.MonteCarloConfig(n_paths=200))
     rep = ts.build()
     assert rep["dsr"]["dsr"] == pytest.approx(st.probabilistic_sharpe_ratio(r, 0.0)) and rep["dsr"]["no_selection"]
+    assert rep["dsr"]["n_eff"] == 1.0 and rep["dsr"]["sr0_per_period"] == 0.0
     gates = {g["gate"]: g["status"] for g in rep["gates"]}
-    assert gates["PBO (CSCV)"] == "N/A (no selection)" and gates["Deflated Sharpe Ratio"] == "PASS"
-    assert "PBO is not applicable" in ts.to_markdown(rep) and "PBO (CSCV)" not in rep["verdict"]
+    assert gates["CSCV rank PBO"] == gates["CSCV P(OOS loss of IS-best)"] == "N/A (no selection)"
+    assert gates["Deflated Sharpe Ratio (zero-mean null, N_eff)"] == "PASS"
+    assert "CSCV statistics are not applicable" in ts.to_markdown(rep) and "CSCV" not in rep["verdict"]
 
 
 def test_missing_inputs_leave_gates_unevaluated():
@@ -278,5 +362,6 @@ def test_missing_inputs_leave_gates_unevaluated():
     ts = TearsheetReporter({"oos": result_from_returns(rng.normal(0.001, 0.004, 400))},
                            mc_config=mc.MonteCarloConfig(n_paths=200))
     gates = {g["gate"]: g["status"] for g in ts.build()["gates"]}
-    assert gates["Deflated Sharpe Ratio"] == "NOT EVALUATED" and gates["PBO (CSCV)"] == "NOT EVALUATED"
+    assert gates["Deflated Sharpe Ratio (zero-mean null, N_eff)"] == "NOT EVALUATED"
+    assert gates["CSCV P(OOS loss of IS-best)"] == "NOT EVALUATED"
     assert ts.build()["verdict"].startswith("NOT READY")

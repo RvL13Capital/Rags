@@ -2,8 +2,8 @@
 
     ndxswing ingest bars     --db data/market.duckdb --file ndx_1h.parquet --symbol NDX --source "IBKR TRADES"
     ndxswing ingest series   --db ... --file eurusd.csv --name EURUSD
+    ndxswing ingest macro    --db ...                      (EFFR, SOFR, USD_RATE, EURUSD from FRED; no key needed)
     ndxswing ingest fred     --db ... --series DEXUSEU --name EURUSD
-    ndxswing ingest fred     --db ... --series DFF --name USD_RATE --scale 0.01
     ndxswing ingest events   --db ... --file tier1_events.csv
     ndxswing ingest ibkr     --db ... --symbol NDX --sec-type IND --exchange NASDAQ
     ndxswing ingest futures  --db ... --file nq_contracts.parquet --root NQ
@@ -28,10 +28,7 @@ from pathlib import Path
 
 from .analytics.montecarlo import MonteCarloConfig
 from .analytics.stats import compute_metrics
-from .config import (
-    MODULE_ORDER, BacktestConfig, ModuleFlags, StrategyParams, ibkr_cfd_costs, ibkr_ibust100, micro_cfd_costs,
-    ndx_fractional_cfd, ucits_etf_costs, ucits_ndx_etf,
-)
+from .config import BROKER_PRESETS, MODULE_ORDER, BacktestConfig, ModuleFlags, StrategyParams, broker_preset
 from .data import ingest as ing
 from .data.store import MarketDataStore
 from .data.synthetic import SYNTHETIC_SOURCE, SyntheticSpec, generate_synthetic_market
@@ -66,12 +63,9 @@ def _context(a: argparse.Namespace) -> BacktestContext:
     # fixed account is the same in 2012 as today ("last" = final close)
     ref = None if a.lot_reference_price == "none" else (
         float(fs.hourly["close"].iloc[-1]) if a.lot_reference_price == "last" else float(a.lot_reference_price))
-    if a.instrument == "micro_cfd":
-        inst, costs = ndx_fractional_cfd(a.lot_step, ref), micro_cfd_costs()
-    elif a.instrument == "ibkr_cfd":
-        inst, costs = ibkr_ibust100(ref), ibkr_cfd_costs()
-    else:
-        inst, costs = ucits_ndx_etf(a.etf_price_ratio, ref), ucits_etf_costs()
+    preset = broker_preset(a.instrument, a.lot_step, ref, a.etf_price_ratio)
+    inst, costs = preset.instrument, preset.costs
+    print(f"[config] preset {a.instrument}: {preset.note}", file=sys.stderr)
     over = {k: v for k, v in (("spread_points", a.spread_points), ("spread_bps", a.spread_bps),
                               ("slippage_bps", a.slippage_bps), ("commission_bps", a.commission_bps),
                               ("commission_min", a.commission_min), ("financing_markup", a.financing_markup))
@@ -99,9 +93,12 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--cache", default="data/feature_cache")
     p.add_argument("--hurst-boot", type=int, default=200)
     p.add_argument("--equity", type=float, default=5000.0)
-    p.add_argument("--instrument", choices=["micro_cfd", "ibkr_cfd", "ucits_etf"], default="micro_cfd",
+    p.add_argument("--instrument", choices=list(BROKER_PRESETS), default="pepperstone_eu_ctrader",
                    help="broker / vehicle preset (lot rules and cost schedule); see config.py")
-    p.add_argument("--lot-step", type=float, default=0.01, help="micro_cfd only: lot step and minimum in index units")
+    p.add_argument("--lot-step", type=float, default=None,
+                   help="CFD presets: lot step and minimum in index units (default: the preset's)")
+    p.add_argument("--b-risk", type=float, default=0.0025,
+                   help="risk per trade as a fraction of equity (0.0025 burn-in, 0.0050 after validation, max 0.0075)")
     p.add_argument("--lot-reference-price", default="last",
                    help="'last', 'none' or an index level at which the lot rules apply")
     p.add_argument("--etf-price-ratio", type=float, default=0.0022, help="ucits_etf only: share price / index level")
@@ -112,6 +109,17 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--commission-min", type=float, default=None)
     p.add_argument("--financing-markup", type=float, default=None)
     p.add_argument("--out", default="runs/latest")
+
+
+def _lot_warning(stats: dict, a: argparse.Namespace) -> None:
+    """Say so when the lot size, not the strategy, is deciding what trades."""
+    clipped = stats.get("rejections", {}).get("below_min_lot", 0)
+    taken = stats.get("orders", 0)
+    if clipped and clipped >= 0.2 * (clipped + taken):
+        print(f"[warn] {clipped} of {clipped + taken} sized signals were below the minimum lot at "
+              f"b_risk={a.b_risk:.4f}. The lot is too coarse for this risk budget: use a finer --lot-step if the "
+              f"broker allows it, or a larger --b-risk (0.0035 carries a 0.10 lot with a ~135 point stop).",
+              file=sys.stderr)
 
 
 def _wf_config(a: argparse.Namespace) -> WalkForwardConfig:
@@ -131,6 +139,10 @@ def cmd_ingest(a: argparse.Namespace) -> None:
             n = ing.ingest_series_file(store, a.file, a.name, a.source, a.date_col, a.value_col)
         elif a.what == "fred":
             n = ing.ingest_fred(store, a.series, a.name, a.start, a.scale)
+        elif a.what == "macro":
+            info = ing.ingest_usd_macro(store, a.start)
+            print(json.dumps(info, indent=2))
+            n = sum(v["rows"] for v in info.values())
         elif a.what == "events":
             n = ing.ingest_events_file(store, a.file, a.source, a.tz)
         elif a.what == "ibkr":
@@ -164,7 +176,7 @@ def cmd_summary(a: argparse.Namespace) -> None:
 
 def cmd_backtest(a: argparse.Namespace) -> None:
     ctx = _context(a)
-    res = ctx.backtester().run(StrategyParams(), _flags(a.modules, a.regime_model))
+    res = ctx.backtester().run(StrategyParams(b_risk=a.b_risk), _flags(a.modules, a.regime_model))
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     res.equity.to_csv(out / "equity.csv")
@@ -173,12 +185,15 @@ def cmd_backtest(a: argparse.Namespace) -> None:
     print("NOTE: single full-sample run with default parameters - in-sample diagnostics, not validation.")
     print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in m.items()}, indent=2))
     print("signal funnel:", res.stats["funnel"])
+    _lot_warning(res.stats, a)
 
 
 def cmd_walkforward(a: argparse.Namespace) -> None:
     ctx = _context(a)
-    runner = PurgedWalkForwardRunner(ctx, _flags(a.modules, a.regime_model), _wf_config(a))
+    runner = PurgedWalkForwardRunner(ctx, _flags(a.modules, a.regime_model), _wf_config(a),
+                                     StrategyParams(b_risk=a.b_risk))
     wf = runner.run(verbose=True)
+    _lot_warning(wf.oos.stats, a)
     ts = runner.tearsheet(wf, n_configs=a.configs, mc_config=MonteCarloConfig(n_paths=a.mc_paths))
     paths = ts.save(a.out)
     wf.fold_table.to_csv(Path(a.out) / "folds.csv", index=False)
@@ -188,13 +203,16 @@ def cmd_walkforward(a: argparse.Namespace) -> None:
 def cmd_ablation(a: argparse.Namespace) -> None:
     ctx = _context(a)
     eng = SequentialAblationEngine(ctx, _wf_config(a), AblationConfig(holdout_start=a.holdout_start,
-                                                                     min_trades=a.min_trades))
+                                                                     min_trades=a.min_trades),
+                                   StrategyParams(b_risk=a.b_risk))
     res = eng.run(verbose=True)
     res.save(a.out)
-    runner = PurgedWalkForwardRunner(ctx, res.final_flags, _wf_config(a))
+    runner = PurgedWalkForwardRunner(ctx, res.final_flags, _wf_config(a), StrategyParams(b_risk=a.b_risk))
+    _lot_warning(res.final.oos.stats, a)
     ts = runner.tearsheet(res.final, n_configs=a.configs, extra_trials=res.variant_oos,
                           mc_config=MonteCarloConfig(n_paths=a.mc_paths),
-                          meta={"ablation variants evaluated": res.n_variants})
+                          meta={"ablation variants evaluated": res.n_variants,
+                                "largest search space in any variant": res.max_tuned})
     paths = ts.save(a.out)
     print(res.to_markdown())
     print(paths["markdown"].read_text())
@@ -212,7 +230,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("ingest", help="load data into the DuckDB store")
-    pi.add_argument("what", choices=["bars", "series", "fred", "events", "ibkr", "futures", "panama", "synthetic"])
+    pi.add_argument("what", choices=["bars", "series", "fred", "macro", "events", "ibkr", "futures", "panama", "synthetic"])
     pi.add_argument("--db", default="data/market.duckdb")
     pi.add_argument("--file")
     pi.add_argument("--symbol")

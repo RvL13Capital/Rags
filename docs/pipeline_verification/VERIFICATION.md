@@ -3,22 +3,29 @@
 > **PIPELINE VERIFICATION - SYNTHETIC DATA.** These results exercise the code on simulated prices.
 > They are not empirical market performance and say nothing about the NASDAQ-100.
 
-Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 164s.
+Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 267s.
 
-| Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (spec) | DSR (zero-mean null) | PBO |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Null (martingale), full geometry tuned | -0.26 | 0.87 | 3.81% | 199 | -129.49 | 0.014 | 0.014 | 0.566 |
-| Planted edge x2 (after ablation, thresholds only) | 0.96 | 1.75 | 2.65% | 189 | 963.38 | 0.099 | 0.913 | 0.727 |
+| Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (gate) | N_eff | DSR (cross-trial mean, info) | CSCV P(OOS loss) | Rank PBO | Gates failed |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Null (martingale), full geometry tuned | -0.26 | 0.87 | 3.81% | 199 | -129.49 | 0.024 | 23.6 | 0.014 | 0.542 | 0.566 | 7 of 10 |
+| Planted edge x2 (after ablation, thresholds only) | 0.96 | 1.75 | 2.65% | 189 | 963.38 | 0.968 | 6.1 | 0.099 | 0.063 | n/a | 0 of 10 |
 
 ## Checks
 
-- Null data rejected by the release gates: **PASS** (failed gates: OOS net Sharpe, Deflated Sharpe Ratio, PBO (CSCV), OOS net profit factor, OOS net P&L under 1.5x costs, Profitable walk-forward OOS folds, Independent OOS trades)
+- Null data rejected by the release gates: **PASS** (failed gates: OOS net Sharpe, Deflated Sharpe Ratio (zero-mean null, N_eff), CSCV P(OOS loss of IS-best), CSCV rank PBO, OOS net profit factor, OOS net P&L under 1.5x costs, Profitable walk-forward OOS folds)
 - Planted edge clearly visible out of sample (Sharpe at least 0.5 above null, positive net P&L, profit factor above 1.2): **PASS**
 - Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, 0.01-lot CFD does): **PASS**
 
-## Power of the release gates
+## Operating characteristics of the release gates
 
-The positive control is a real edge by construction, yet it fails 4 of 9 gates: Deflated Sharpe Ratio, PBO (CSCV), Profitable walk-forward OOS folds, Independent OOS trades. With about 18 trades a year the specified battery cannot confirm an edge of this size on roughly ten OOS years. Two of the failures are structural: the specified DSR adds the cross-trial mean to its benchmark, so sibling variants that all share the edge raise the bar to their own level; and CSCV-PBO measures whether the in-sample ranking of the compared variants persists, which is close to a coin flip when the variants are near-identical.
+On this run the positive control fails 0 of 10 gates. One history says little, so the fixed-prior baseline was also run on independent synthetic histories (different seeds, nothing tuned, K = 1), each through the complete battery:
+
+| Planted strength | Histories | Pass every gate | Median OOS Sharpe | Gates failed most often |
+|---:|---:|---:|---:|---|
+| 0 | 40 | 0 | -0.18 | OOS net Sharpe (40); Profitable walk-forward OOS folds (40); Deflated Sharpe Ratio (zero-mean null, N_eff) (38) |
+| 2 | 40 | 22 | 0.93 | Profitable walk-forward OOS folds (16); OOS net Sharpe (15); Deflated Sharpe Ratio (zero-mean null, N_eff) (4) |
+
+The first row estimates the false-positive rate of the battery, the second its power against an edge of this size. Thresholds: Sharpe > 0.80, DSR > 0.95, P(OOS loss) < 15%, profit factor > 1.20, positive under 1.5x costs, max drawdown < 10%, Monte Carlo P(DD >= 20%) < 2%, profitable folds >= 65%, trades >= 150.
 
 ## How strong must an edge be to be seen?
 
@@ -69,17 +76,32 @@ Risk per trade 0.25% (EUR 12.50):
 
 | Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | Transaction costs | Financing |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Micro CFD, 0.01 lot | 1204 | 638 | 2 | 0 | 265 | 1722.36 | 77.91 | 110.49 |
-| Micro CFD, 0.1 lot | 1204 | 290 | 645 | 0 | 121 | 744.91 | 37.25 | 53.00 |
+| Pepperstone EU cTrader, 0.01 lot | 1204 | 638 | 2 | 0 | 265 | 1722.36 | 77.91 | 110.49 |
+| Pepperstone EU cTrader, 0.10 lot | 1204 | 290 | 645 | 0 | 121 | 744.91 | 37.25 | 53.00 |
+| Capital.com EU, 0.10 lot (as specified) | 1204 | 290 | 645 | 0 | 121 | 744.91 | 37.25 | 53.00 |
+| Capital.com EU, 0.001 lot, +4.1% financing (its own page) | 1204 | 640 | 0 | 0 | 265 | 1730.17 | 81.59 | 186.78 |
 | IBKR IBUST100, 1 unit | 1204 | 0 | 1204 | 0 | 0 | 0.00 | 0.00 | 0.00 |
 | UCITS ETF, long only | 1204 | 300 | 0 | 684 | 119 | 155.96 | 324.85 | 0.00 |
+
+Risk per trade 0.35% (EUR 17.50):
+
+| Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | Transaction costs | Financing |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Pepperstone EU cTrader, 0.01 lot | 1204 | 640 | 0 | 0 | 265 | 2539.67 | 115.99 | 168.98 |
+| Pepperstone EU cTrader, 0.10 lot | 1204 | 517 | 233 | 0 | 213 | 1691.11 | 77.69 | 111.05 |
+| Capital.com EU, 0.10 lot (as specified) | 1204 | 517 | 233 | 0 | 213 | 1691.11 | 77.69 | 111.05 |
+| Capital.com EU, 0.001 lot, +4.1% financing (its own page) | 1204 | 640 | 0 | 0 | 265 | 2537.27 | 119.97 | 279.58 |
+| IBKR IBUST100, 1 unit | 1204 | 0 | 1204 | 0 | 0 | 0.00 | 0.00 | 0.00 |
+| UCITS ETF, long only | 1204 | 300 | 0 | 684 | 119 | 312.87 | 366.01 | 0.00 |
 
 Risk per trade 0.50% (EUR 25.00):
 
 | Vehicle | Signals | Orders | Rejected: below minimum lot | Rejected: short | Trades | Net P&L (EUR) | Transaction costs | Financing |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Micro CFD, 0.01 lot | 1204 | 640 | 0 | 0 | 265 | 3684.37 | 169.35 | 251.40 |
-| Micro CFD, 0.1 lot | 1204 | 457 | 359 | 0 | 186 | 1304.44 | 91.08 | 95.24 |
+| Pepperstone EU cTrader, 0.01 lot | 1204 | 640 | 0 | 0 | 265 | 3684.37 | 169.35 | 251.40 |
+| Pepperstone EU cTrader, 0.10 lot | 1204 | 457 | 359 | 0 | 186 | 1304.44 | 91.08 | 95.24 |
+| Capital.com EU, 0.10 lot (as specified) | 1204 | 457 | 359 | 0 | 186 | 1304.44 | 91.08 | 95.24 |
+| Capital.com EU, 0.001 lot, +4.1% financing (its own page) | 1204 | 640 | 0 | 0 | 265 | 3664.36 | 173.30 | 410.33 |
 | IBKR IBUST100, 1 unit | 1204 | 0 | 1204 | 0 | 0 | 0.00 | 0.00 | 0.00 |
 | UCITS ETF, long only | 1204 | 300 | 0 | 684 | 119 | 421.46 | 398.34 | 0.00 |
 
