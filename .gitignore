@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+# Local market data and research outputs are never committed
+/data/
+/runs/
+*.duckdb
+*.duckdb.wal
+*.parquet

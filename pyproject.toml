@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ndxswing"
+version = "0.1.0"
+description = "NASDAQ-100 systematic swing-trading research stack: event-driven backtester, purged walk-forward, ablation and tearsheet"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+    "arch>=7.0",
+    "hmmlearn>=0.3",
+    "scikit-learn>=1.4",
+    "optuna>=3.6",
+    "duckdb>=1.0",
+    "pyarrow>=15",
+]
+
+[project.optional-dependencies]
+ibkr = ["ib_async>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ndxswing = "ndxswing.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "ignore:This process .* is multi-threaded, use of fork:DeprecationWarning",
+    "ignore::RuntimeWarning:hmmlearn",
+]
