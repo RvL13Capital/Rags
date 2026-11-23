@@ -167,7 +167,7 @@ issue a release verdict for synthetic data.
    is evaluated only if the Pesaran–Timmermann test is significant, and expect it to starve trades.
 3. **The Hurst gate is close to a no-trade switch.** DFA on 1,500 hourly returns has a sampling
    error near 0.04–0.05, so `H_LCB > 0.50` needs a point estimate around 0.58. On the synthetic
-   trend data it left 2 trades in ten years.
+   trend data it left 2 trades in eleven years of walk-forward OOS.
 4. **Six-month validation windows hold 10–20 trades.** Selection on them is dominated by noise
    (validation Sharpe above 2 routinely became about 0 out of sample in the synthetic runs). DSR and
    PBO catch it, but consider scoring on train + validation.

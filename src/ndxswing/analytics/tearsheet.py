@@ -216,7 +216,10 @@ class TearsheetReporter:
             cells = [_fmt(None if seg[s] is None else seg[s].get(key), kind) for s in SEGMENTS]
             L.append(f"| {label} | " + " | ".join(cells) + " |")
         L += ["", "Monte Carlo rows show the most adverse of the three generators (block bootstrap, "
-              "Student-t / q-Gaussian, tempered Levy); per-generator detail is in the JSON report.", ""]
+              "Student-t / q-Gaussian, tempered Levy); per-generator detail is in the JSON report.", "",
+              "Validation is the span the hyper-parameters were selected on (optimistic by construction); "
+              "In-Sample is the model-estimation span with the parameters later chosen for it; only "
+              "Out-of-Sample is untouched by selection.", ""]
 
         L += ["## Release gates (untouched OOS)", "", "| Gate | Value | Rule | Status |", "|---|---:|---|---|"]
         for g in rep["gates"]:
