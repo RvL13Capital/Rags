@@ -439,6 +439,7 @@ class PurgedWalkForwardRunner:
             "backtests evaluated in search": wf.n_evaluations,
             "configurations compared (K)": len(trials) if len(trials) >= 2 else "1 (no selection)",
             "instrument": self.ctx.config.instrument.name,
+            "entry order": self.ctx.config.entry_order_type,
             "initial equity": f"{self.ctx.config.initial_equity:,.0f} {self.ctx.config.account_ccy}",
         } | (meta or {})
         return TearsheetReporter(

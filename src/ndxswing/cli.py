@@ -74,7 +74,7 @@ def _context(a: argparse.Namespace) -> BacktestContext:
     if "spread_bps" in over and "spread_points" not in over:
         over["spread_points"] = None            # an explicit relative spread replaces the preset's points
     costs = replace(costs, **over)
-    cfg = BacktestConfig(initial_equity=a.equity, instrument=inst, costs=costs)
+    cfg = BacktestConfig(initial_equity=a.equity, instrument=inst, costs=costs, entry_order_type=a.entry_order)
     print(f"[config] instrument {inst.name}: lot step {inst.lot_step:g} at reference price {ref}, "
           f"costs {costs}", file=sys.stderr)
     if fx is None:
@@ -98,6 +98,9 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
                    help="broker / vehicle preset (lot rules and cost schedule); see config.py")
     p.add_argument("--lot-step", type=float, default=None,
                    help="CFD presets: lot step and minimum in index units (default: the preset's)")
+    p.add_argument("--entry-order", choices=["stop_limit", "stop"], default="stop_limit",
+                   help="stop_limit: the strategy as specified; stop: a plain stop that fills at the market once "
+                        "triggered, for brokers without a native stop-limit")
     p.add_argument("--b-risk", type=float, default=0.0025,
                    help="risk per trade as a fraction of equity (0.0025 burn-in, 0.0050 after validation, max 0.0075)")
     p.add_argument("--lot-reference-price", default="last",
@@ -190,6 +193,8 @@ def cmd_backtest(a: argparse.Namespace) -> None:
     print("NOTE: single full-sample run with default parameters - in-sample diagnostics, not validation.")
     print(json.dumps({k: (round(v, 4) if isinstance(v, float) else v) for k, v in m.items()}, indent=2))
     print("signal funnel:", res.stats["funnel"])
+    print("entry orders:", {k: res.stats[k] for k in ("entry_order_type", "orders", "cancel_anti_chase", "expired",
+                                                      "opens_beyond_limit", "entries_beyond_limit")})
     _lot_warning(res.stats, a)
 
 

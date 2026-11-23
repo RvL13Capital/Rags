@@ -369,6 +369,23 @@ def test_panama_adjustment_removes_roll_gap_and_keeps_raw_prices():
         panama_adjust(pd.DataFrame(rows).drop(columns="expiry"))
 
 
+def test_synthetic_touch_fills_are_not_flattered_by_a_coarse_intrabar_path():
+    """On a martingale, buying at a level the bar's high touched and marking at
+    the close must be worth nothing on average.  A coarse intrabar path makes
+    it look profitable, which would flatter every simulated stop and trigger."""
+    def touch_edge(substeps: int) -> float:
+        hb = generate_synthetic_market(SyntheticSpec(end="2015-12-31", edge=0.0, seed=21, substeps=substeps))["hourly"]
+        rng_ = (hb["high"] - hb["low"]).rolling(50).mean().shift(1)
+        level = hb["open"] + 0.35 * rng_                         # a buy trigger above the open
+        hit = (hb["high"] >= level) & rng_.notna()
+        return float(((hb["close"] - level) / rng_)[hit].mean()) # P&L of a touch fill, in bar ranges
+
+    coarse, fine = touch_edge(8), touch_edge(256)
+    assert SyntheticSpec().substeps == 256
+    assert coarse > 0.04                                         # the artefact, for the record
+    assert fine < 0.35 * coarse and abs(fine) < 0.02
+
+
 def test_synthetic_generator_is_labelled_and_well_formed():
     m = generate_synthetic_market(SyntheticSpec(end="2013-12-31", edge=0.0))
     hb = m["hourly"]

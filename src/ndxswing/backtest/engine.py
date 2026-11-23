@@ -17,6 +17,8 @@ Fill conventions (bar prices are treated as mid quotes):
 
 * buys pay mid + half spread, sells receive mid - half spread; stop and market
   fills additionally pay slippage; limit fills (entry limit, take-profit) do not;
+* entries are stop-limits by default; ``entry_order_type="stop"`` models a
+  plain stop that fills at the market once triggered (no limit leg);
 * a stop is triggered by the mid touching it; if the bar opens beyond the
   stop the fill is the open (worse than the stop);
 * the intrabar path is unknown, so when a bar touches both the stop and a
@@ -228,11 +230,15 @@ class EventDrivenBacktester:
         eq_vals: list[float] = []
         stats = {"orders": 0, "cancel_anti_chase": 0, "expired": 0, "cancel_halt": 0, "rejections": {},
                  "commission": 0.0, "spread_cost": 0.0, "slippage_cost": 0.0, "financing": 0.0, "fx_fee": 0.0,
-                 "turnover": 0.0}
+                 "turnover": 0.0,
+                 # entry-order diagnostics: bars on which a working order opened beyond its limit but
+                 # inside the anti-chase bound, and (plain stop only) fills paid through the limit
+                 "opens_beyond_limit": 0, "entries_beyond_limit": 0, "entry_excess_atr": 0.0}
         peak_bar, max_dd_bar = init_eq, 0.0
         prev_seg = seg_l[i0] if i1 > i0 else 0
 
         fx_in_price = inst.fx_mode == "price"
+        plain_stop = cfg.entry_order_type == "stop"
 
         def trade_pnl(ps: _Position, units: float, px: float, x: float) -> float:
             """P&L in account currency.  A CFD accrues quote-currency P&L that
@@ -336,8 +342,12 @@ class EventDrivenBacktester:
                 px, hs_px, sl_px = lim, 0.0, 0.0
             else:
                 px = ref_px + d * (hs_px + sl_px)
-                if (px - lim) * d > 0:      # a stop-limit never pays through its limit
-                    px = lim
+                if (px - lim) * d > 0:
+                    if plain_stop:          # a plain stop pays whatever the market is
+                        stats["entries_beyond_limit"] += 1
+                        stats["entry_excess_atr"] += (px - lim) * d / (pr.atr * self._ratio)
+                    else:                   # a stop-limit never pays through its limit
+                        px = lim
             stop = pr.stop_price * self._ratio
             r_px = (px - stop) * d
             x = X[i]
@@ -457,11 +467,16 @@ class EventDrivenBacktester:
                         if (Lm - quote) * d >= 0:
                             open_position(i, pending, oi, False)
                             filled = at_open = True
-                        else:                                    # resting limit: needs a pullback to it
-                            back = (li + li * HS[i]) if d > 0 else (hi_ - hi_ * HS[i])
-                            if (Lm - back) * d >= 0:
-                                open_position(i, pending, Lm, True)
-                                filled = True
+                        else:                                    # opened beyond the limit, inside the anti-chase bound
+                            stats["opens_beyond_limit"] += 1
+                            if plain_stop:                       # plain stop: filled at the market open
+                                open_position(i, pending, oi, False)
+                                filled = at_open = True
+                            else:                                # stop-limit: rests, needs a pullback to the limit
+                                back = (li + li * HS[i]) if d > 0 else (hi_ - hi_ * HS[i])
+                                if (Lm - back) * d >= 0:
+                                    open_position(i, pending, Lm, True)
+                                    filled = True
                     elif ((hi_ if d > 0 else li) - P) * d >= 0:  # triggered intrabar
                         open_position(i, pending, P, False)
                         filled = True
@@ -545,7 +560,7 @@ class EventDrivenBacktester:
             max_dd_bar=max_dd_bar, breaker_events=list(breakers.events), funnel=dict(prep.funnel),
             n_pauses=sum(1 for ev in breakers.events if ev[1] == "pause"),
             deactivated_at=next((ev[0] for ev in breakers.events if ev[1] == "deactivate"), None),
-            true_peak=breakers.true_peak, instrument=inst.name,
+            true_peak=breakers.true_peak, instrument=inst.name, entry_order_type=cfg.entry_order_type,
             n_sessions=len(equity), source=e.features.source, cost_stress=costs.stress,
         )
         return BacktestResult(equity=equity, trades=tdf, initial_equity=init_eq, stats=stats)

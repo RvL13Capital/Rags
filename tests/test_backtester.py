@@ -101,6 +101,84 @@ def test_open_above_limit_without_pullback_does_not_fill():
     assert res.stats["expired"] == 1
 
 
+def test_plain_stop_entry_fills_at_the_open_beyond_the_limit():
+    """Open at 101.6: beyond the 101.3 limit, inside the 102.0 anti-chase bound.
+    A stop-limit rests and never fills; a plain stop is filled at the open."""
+    def bars_():
+        bars = flat_market()
+        set_bar(bars, S + 1, 101.6, 101.9, 101.5, 101.8)
+        set_bar(bars, S + 2, 101.8, 101.9, 101.7, 101.8)                     # no pullback to the limit while it works
+        set_bar(bars, S + 3, 101.8, 101.9, 98.5, 98.8)                       # then straight down through the stop
+        return bars
+
+    limit = run(bars_(), {S: LONG})
+    assert len(limit.trades) == 0 and limit.stats["expired"] == 1 and limit.stats["opens_beyond_limit"] == 2
+    assert limit.stats["entries_beyond_limit"] == 0 and limit.stats["entry_order_type"] == "stop_limit"
+
+    res = run(bars_(), {S: LONG}, entry_order_type="stop")
+    t = one_trade(res)
+    assert t["entry_px"] == pytest.approx(101.6) and t["units"] == pytest.approx(5.0)   # sized on the trigger, 101
+    assert t["net_pnl"] == pytest.approx(5.0 * (99.0 - 101.6))                # EUR 13.00 lost on a EUR 12.50 budget
+    assert t["r_px"] == pytest.approx(2.6) and t["r_multiple"] == pytest.approx(-1.0)
+    assert res.stats["entry_order_type"] == "stop" and res.stats["opens_beyond_limit"] == 1
+    assert res.stats["entries_beyond_limit"] == 1
+    assert res.stats["entry_excess_atr"] == pytest.approx((101.6 - 101.3) / 2.0)   # 0.15 ATR through the limit
+
+
+def test_plain_stop_differs_only_where_the_limit_would_have_bound():
+    # open between trigger and limit, and an intrabar trigger: both order types fill identically
+    for bar in ((101.2, 101.6, 101.1, 101.5), (100.5, 101.5, 100.4, 101.2)):
+        fills = []
+        for mode in ("stop_limit", "stop"):
+            bars = flat_market()
+            set_bar(bars, S + 1, *bar)
+            fills.append(one_trade(run(bars, {S: LONG}, entry_order_type=mode))["entry_px"])
+        assert fills[0] == fills[1]
+    # the anti-chase cancellation at the open still protects a plain stop
+    bars = flat_market()
+    set_bar(bars, S + 1, 102.1, 102.5, 102.0, 102.3)
+    res = run(bars, {S: LONG}, entry_order_type="stop")
+    assert len(res.trades) == 0 and res.stats["cancel_anti_chase"] == 1
+    # heavy slippage on an intrabar trigger: the stop-limit is capped at its limit, the plain stop is not
+    costs = CostModel(spread_bps=0.0, slippage_bps=50.0, commission_bps=0.0, financing_markup=0.0,
+                      default_benchmark_rate=0.0)
+    px = {}
+    for mode in ("stop_limit", "stop"):
+        bars = flat_market()
+        set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)
+        px[mode] = one_trade(run(bars, {S: LONG}, costs=costs, entry_order_type=mode))["entry_px"]
+    assert px["stop_limit"] == pytest.approx(101.3) and px["stop"] == pytest.approx(101.0 * 1.005)
+    # short side mirrors: open at 98.4 is beyond the 98.7 limit, inside the 98.0 bound
+    bars = flat_market()
+    set_bar(bars, S + 1, 98.4, 98.5, 98.1, 98.2)
+    assert len(run(bars, {S: SHORT}).trades) == 0
+    bars = flat_market()
+    set_bar(bars, S + 1, 98.4, 98.5, 98.1, 98.2)
+    assert one_trade(run(bars, {S: SHORT}, entry_order_type="stop"))["entry_px"] == pytest.approx(98.4)
+
+
+def test_stop_limit_remains_the_default_entry(synth_features, synth_market):
+    from dataclasses import replace
+    from ndxswing.backtest.engine import EventDrivenBacktester
+    from ndxswing.config import BacktestConfig
+    from ndxswing.signal.engine import SignalEngine
+
+    assert BacktestConfig().entry_order_type == "stop_limit"
+    with pytest.raises(ValueError):
+        BacktestConfig(entry_order_type="market")
+    eng = SignalEngine(synth_features, CostModel(), None, synth_market["rate"])
+    runs = {}
+    for label, cfg in (("default", BacktestConfig()), ("explicit", BacktestConfig(entry_order_type="stop_limit")),
+                       ("stop", replace(BacktestConfig(), entry_order_type="stop"))):
+        runs[label] = EventDrivenBacktester(eng, cfg, fx=synth_market["fx"]).run(P, ModuleFlags())
+    assert runs["default"].equity.equals(runs["explicit"].equity)
+    assert runs["default"].trades.equals(runs["explicit"].trades)
+    d, st = runs["default"], runs["stop"]
+    assert d.stats["entries_beyond_limit"] == 0 and st.stats["entries_beyond_limit"] > 0
+    assert len(st.real_trades()) > len(d.real_trades())                       # nothing is left waiting at a limit
+    assert 0.0 < st.stats["entry_excess_atr"] / st.stats["entries_beyond_limit"] <= 0.35 + 1e-9
+
+
 def test_partial_take_profit_then_breakeven_stop():
     bars = flat_market()
     set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)   # fill 101, 1R = 2, TP1 = 104

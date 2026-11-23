@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-116 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
+120 tests, about 45 seconds. They cover hand-computed fills and P&L for every branch of the order
 state machine, Monte Carlo / brute-force references for the statistics, and look-ahead checks that
 recompute features and signals on truncated history.
 
@@ -130,6 +130,14 @@ simulator.
   therefore has to emulate the limit: watch the price stream, and when the trigger trades send a
   `LIMIT` at the limit price, or check the open against the limit before any order is working.
   Until that emulation has been measured in paper trading, treat entry-fill parity as unproven.
+- **A plain-stop entry can be simulated** with `--entry-order stop` (default `stop_limit`,
+  unchanged). It drops the limit leg only: the anti-chase cancellation at the open and the
+  two-bar expiry still apply, which assumes the adapter checks the opening price before a stop is
+  live. On synthetic data, paired over 40 independent histories, the plain stop paid through the
+  limit on about half its fills, by 0.18 ATR on average, took about 5% more trades, and cost
+  about 0.01R a trade in expectancy (−0.007R ± 0.004 with no edge, −0.011R ± 0.005 with the
+  planted edge). That is small next to roughly 0.08R of costs per trade, but it is a synthetic
+  result: run both modes on the real bars before choosing.
 - **Guaranteed and trailing stops are mutually exclusive** (as reported for this endpoint; the
   reference lists `guaranteedStop` and `trailingStop` as separate optional flags and does not
   state the restriction, so confirm it on the demo server). The system does not need the broker's
@@ -222,8 +230,8 @@ These gates are locked. Two readings of the calibration are stricter than a lite
 purpose:
 
 - **K counts module variants even when no parameter is tuned.** Choosing among fifteen ablation
-  variants is selection. On the synthetic control this gives N_eff = 6.0 and a DSR of 0.959; with
-  N_eff forced to 1 it would be 0.999.
+  variants is selection. On the synthetic control this gives N_eff = 6.3 and a DSR of 0.962; with
+  N_eff forced to 1 it would be 0.997.
 - **P(OOS loss) is gated whenever K ≥ 2**, not only when parameters are tuned.
 
 And one that is narrower: the rank statistic is computed over parameter draws of the released
@@ -298,24 +306,30 @@ tearsheet refuses to issue a release verdict for synthetic data.
    forecast Sharpe near 3, which daily ARMA means do not reach. DFA on 1,500 hourly returns has a
    sampling error near 0.045, so a lower bound above 0.50 needs a point estimate near 0.58. Both
    are off in the baseline and are evaluated last, as challengers. On the synthetic trend data the
-   specification gate left 3 trades in about ten years and the point-estimate version 27.
+   specification gate left 3 trades in about ten years and the point-estimate version 18.
 6. **Costs per trade decide the vehicle, and funding is the largest of them.** In the synthetic
-   run at EUR 12.50 risk, a leveraged Capital.com trade in a EUR account cost about EUR 1.17:
-   funding 58%, spread and slippage 29%, conversion mark-up 13%. That is roughly 0.09R a trade.
-   The 1:1 version cost about EUR 0.49, because it pays no funding, and it gives up no size:
-   average exposure was 0.28×, 0.39× and 0.52× of equity at 0.25%, 0.35% and 0.50% risk, the same
+   run at EUR 12.50 risk, a leveraged Capital.com trade in a EUR account cost about EUR 0.96:
+   funding 59%, spread and slippage 28%, conversion mark-up 13%. That is roughly 0.08R a trade.
+   The 1:1 version cost about EUR 0.39, because it pays no funding, and it gives up no size:
+   average exposure was 0.23×, 0.32× and 0.44× of equity at 0.25%, 0.35% and 0.50% risk, the same
    as the leveraged preset. The ETF pays no funding either, but a EUR 1 ticket on each leg is
    EUR 2 a round trip, 0.16R on its own.
 7. **What the locked gates do, measured on synthetic histories.** Fixed-prior baseline on the
    leveraged Capital.com preset, 40 independent histories each, complete battery: with no edge,
    0 of 40 pass (which bounds the false-positive rate below about 7.5% at 95% confidence); with
-   the planted edge (median OOS Sharpe 0.86), 17 of 40 pass. So a real edge of that size has
-   somewhat less than even odds of being confirmed on ten OOS years at about 18 trades a year,
+   the planted edge (median OOS Sharpe 0.93), 24 of 40 pass. So a real edge of that size has
+   somewhat better than even odds of being confirmed on ten OOS years at about 18 trades a year,
    and a weaker one will usually be rejected. The gates that reject it are the profitable-folds
    share and the Sharpe floor, not the overfitting tests. The fold and trade thresholds were set
-   after seeing the control land at 69% and 189, so they are fitted to this trade frequency; the
-   no-edge result is what shows they did not open the door. With the cheaper schedule assumed
-   before the broker corrections, 22 of 40 passed: costs move the answer.
+   after seeing an earlier control land at 69% and 189, so they are fitted to this trade
+   frequency; the no-edge result is what shows they did not open the door.
+8. **Synthetic numbers before this version were flattered.** The synthetic bars used a coarse
+   intrabar path (8 steps an hour). The simulator fills stops and triggers at the level a bar
+   touches, which is right for a continuous path but too generous when the path jumps past the
+   level: a no-edge series showed about 0.08R a trade of expectancy that did not exist. The
+   generator now uses 256 steps, a test guards it, and every figure in this README and in
+   `docs/pipeline_verification/` comes from the corrected bars. Real bars are built from ticks
+   and are not affected; the no-edge data failed the gates before and after.
 
 On the suggestion to score parameters on train plus validation: I dropped it in favour of the
 longer validation window. One nuance for the record: in this implementation the statistical models

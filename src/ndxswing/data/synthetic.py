@@ -32,7 +32,15 @@ class SyntheticSpec:
     edge: float = 1.0          # 0 = martingale null, 1 = planted trend persistence
     s0: float = 2300.0
     with_spread: bool = True
-    substeps: int = 8
+    #: Intrabar path resolution.  The simulator fills stops and triggers at the
+    #: level when a bar's high/low touches it, which is exact for a continuous
+    #: path.  On a coarse path the price has already jumped past the level at
+    #: the first step that crosses it, so touch fills are too good.  Measured
+    #: on no-edge series against a true cost of about 0.08R per trade: 8 steps
+    #: per bar flattered expectancy by about 0.08R, 64 steps by about 0.05R,
+    #: 256 steps by about 0.015R (inside the noise).  Real bars are built from
+    #: ticks and do not have this problem.
+    substeps: int = 256
 
 
 def _sessions(start: str, end: str) -> pd.DatetimeIndex:

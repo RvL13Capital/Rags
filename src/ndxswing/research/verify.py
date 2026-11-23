@@ -17,6 +17,7 @@ NASDAQ-100:
    the IBKR IBUST100 CFD (whole units) and a long-only cash UCITS ETF, with
    lots normalised to today's index level.
    This checks the sizing mechanics per broker; it is not a cost forecast.
+4. ENTRY ORDER comparison: the specified stop-limit against a plain stop.
 
 No number printed here is evidence about any real market.
 """
@@ -100,6 +101,55 @@ def vehicle_comparison(m: dict, fs: FeatureSet, b_risk: float = 0.0025) -> pd.Da
             "avg_leverage": float(res.real_trades()["leverage"].mean()) if met["n_trades"] else 0.0,
         })
     return pd.DataFrame(rows)
+
+
+def entry_order_comparison(m: dict, fs: FeatureSet) -> pd.DataFrame:
+    """The specified stop-limit entry against a plain stop (brokers without a
+    native stop-limit): fixed-prior baseline, full sample, default preset."""
+    rows = []
+    base = _context(m, fs)
+    for mode in ("stop_limit", "stop"):
+        ctx = BacktestContext(fs, replace(base.config, entry_order_type=mode), m["fx"], m["rate"], m["events"])
+        res = ctx.backtester().run(StrategyParams(), ModuleFlags.baseline())
+        met, st = compute_metrics(res), res.stats
+        n_beyond = st["entries_beyond_limit"]
+        rows.append({
+            "entry_order": mode, "orders": st["orders"], "cancelled_anti_chase": st["cancel_anti_chase"],
+            "expired": st["expired"], "opens_beyond_limit": st["opens_beyond_limit"], "trades": met["n_trades"],
+            "fills_beyond_limit": n_beyond,
+            "avg_excess_atr": st["entry_excess_atr"] / n_beyond if n_beyond else 0.0,
+            "expectancy_r": met["expectancy_r"], "profit_factor": met["profit_factor"], "sharpe": met["sharpe"],
+            "net_pnl": met["net_pnl"],
+        })
+    return pd.DataFrame(rows)
+
+
+def _entry_pair(args: tuple) -> dict:
+    edge, seed, end = args
+    from ..features.pipeline import build_feature_set
+
+    cheap = FeatureConfig(with_regime=False, with_hurst=False, with_garch=False, with_evt=False, with_vpin=False)
+    m = generate_synthetic_market(SyntheticSpec(edge=edge, end=end, seed=seed))
+    fs = build_feature_set(m["hourly"], cheap, source=m["source"], n_jobs=1)
+    base = _context(m, fs)
+    out = {"edge": edge, "seed": seed}
+    for mode in ("stop_limit", "stop"):
+        ctx = BacktestContext(fs, replace(base.config, entry_order_type=mode), m["fx"], m["rate"])
+        res = ctx.backtester().run(StrategyParams(), ModuleFlags.baseline())
+        met = compute_metrics(res)
+        out |= {f"{mode}_r": met["expectancy_r"], f"{mode}_pnl": met["net_pnl"], f"{mode}_trades": met["n_trades"]}
+    return out
+
+
+def entry_order_paired(end: str, seeds: range = range(200, 240), strengths: tuple[float, ...] = (0.0, 2.0),
+                       jobs: int = 4) -> pd.DataFrame:
+    """Plain stop minus stop-limit on the SAME synthetic history, over many
+    independent histories: the only way to tell an effect from path noise."""
+    import multiprocessing as mp
+
+    tasks = [(k, sd, end) for k in strengths for sd in seeds]
+    with mp.get_context("fork").Pool(jobs) as pool:
+        return pd.DataFrame(pool.map(_entry_pair, tasks, chunksize=1))
 
 
 def detection_sensitivity(end: str, seed: int, strengths: tuple[float, ...] = (0.0, 1.0, 2.0, 3.0)) -> pd.DataFrame:
@@ -196,6 +246,13 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
     for b, df in veh.items():
         df.to_csv(out / f"vehicles_risk_{int(b * 1e4)}bp.csv", index=False)
 
+    print("[verify] entry order comparison", flush=True)
+    entry = {"null": entry_order_comparison(m0, fs0), "planted": entry_order_comparison(m1, fs1)}
+    for k, df in entry.items():
+        df.to_csv(out / f"entry_order_{k}.csv", index=False)
+    paired = entry_order_paired(end, jobs=jobs)
+    paired.to_csv(out / "entry_order_paired.csv", index=False)
+
     print("[verify] detection sensitivity of the fixed-prior baseline", flush=True)
     sens = detection_sensitivity(end, seed)
     sens.to_csv(out / "detection_sensitivity.csv", index=False)
@@ -243,6 +300,29 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
                      f"{r['fx_fee']:.2f} | {r['financing_costs']:.2f} |")
         return L
 
+    def entry_table(label: str, df: pd.DataFrame) -> list[str]:
+        L = [f"{label}:", "",
+             "| Entry order | Orders | Cancelled (anti-chase) | Expired unfilled | Opens beyond limit | Trades | "
+             "Fills beyond limit | Average excess (ATR) | Expectancy (R) | Profit factor | Sharpe | Net P&L (EUR) |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        for r in df.to_dict(orient="records"):
+            L.append(f"| {r['entry_order']} | {r['orders']} | {r['cancelled_anti_chase']} | {r['expired']} | "
+                     f"{r['opens_beyond_limit']} | {r['trades']} | {r['fills_beyond_limit']} | "
+                     f"{r['avg_excess_atr']:.3f} | {r['expectancy_r']:.3f} | {r['profit_factor']:.2f} | "
+                     f"{r['sharpe']:.2f} | {r['net_pnl']:.2f} |")
+        return L
+
+    def paired_table() -> list[str]:
+        L = ["| Planted strength | Histories | Mean expectancy, stop-limit (R) | Mean expectancy, plain stop (R) | "
+             "Mean difference (R) | Standard error | Histories where the plain stop did better | "
+             "Mean trades, stop-limit / plain stop |", "|---:|---:|---:|---:|---:|---:|---:|---:|"]
+        for k, g in paired.groupby("edge"):
+            d = g["stop_r"] - g["stop_limit_r"]
+            L.append(f"| {k:g} | {len(g)} | {g['stop_limit_r'].mean():.3f} | {g['stop_r'].mean():.3f} | "
+                     f"{d.mean():+.3f} | {d.std(ddof=1) / len(g) ** 0.5:.3f} | {int((d > 0).sum())} of {len(g)} | "
+                     f"{g['stop_limit_trades'].mean():.0f} / {g['stop_trades'].mean():.0f} |")
+        return L
+
     md = [
         "# Pipeline verification report", "", BANNER,
         f"Synthetic sample {2012}-{end[:4]}; walk-forward {wf_cfg.train_months}m train / {wf_cfg.val_months}m "
@@ -286,6 +366,16 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         "Risk per trade 0.25% (EUR 12.50):", "", *vehicle_table(veh[0.0025]), "",
         "Risk per trade 0.35% (EUR 17.50):", "", *vehicle_table(veh[0.0035]), "",
         "Risk per trade 0.50% (EUR 25.00):", "", *vehicle_table(veh[0.0050]), "",
+        "## Entry order: stop-limit (default) against a plain stop", "",
+        "Fixed-prior baseline, full sample, default preset. A plain stop has no limit leg: when a bar opens beyond "
+        "the limit (trigger + 0.15 ATR) but inside the anti-chase bound (trigger + 0.50 ATR) it is filled at the "
+        "open, where the stop-limit waits for a pullback or expires. Everything above uses the stop-limit.", "",
+        *entry_table("No-edge data", entry["null"]), "",
+        *entry_table("Planted-edge data", entry["planted"]), "",
+        "One history cannot separate an effect from path noise, because the two order types take different "
+        "trades. Paired over independent histories (plain stop minus stop-limit on the same history, fixed-prior "
+        "baseline, full sample):", "",
+        *paired_table(), "",
         "Full tearsheets: `null_tearsheet.md`, `planted_tearsheet.md`.", "",
     ]
     (out / "VERIFICATION.md").write_text("\n".join(md))

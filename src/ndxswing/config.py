@@ -444,6 +444,15 @@ class BacktestConfig:
     #: "conservative": a bar that fills the entry and trades through the stop
     #: is booked as a stop-out; "close": only when the bar closes beyond it.
     entry_bar_stop_policy: str = "conservative"
+    #: "stop_limit" (default, the strategy as specified): an entry never pays
+    #: through its limit; when a bar opens beyond the limit the order rests
+    #: there and fills only on a pullback.
+    #: "stop": a plain stop order, as on brokers without a native stop-limit.
+    #: It fills at the market once triggered, so an open between the limit
+    #: and the anti-chase bound is filled at the open.  The anti-chase
+    #: cancellation at the bar open and the two-bar expiry still apply (the
+    #: adapter is assumed to check the opening price before the stop is live).
+    entry_order_type: str = "stop_limit"
     allow_overnight_entry_orders: bool = True
     #: When the Kelly cap or a pause sets size to zero the trade is simulated
     #: off-book ("paper diagnostics") so that the edge estimate keeps updating.
@@ -452,3 +461,5 @@ class BacktestConfig:
     def __post_init__(self) -> None:
         if self.entry_bar_stop_policy not in ("conservative", "close"):
             raise ValueError("entry_bar_stop_policy must be 'conservative' or 'close'")
+        if self.entry_order_type not in ("stop_limit", "stop"):
+            raise ValueError("entry_order_type must be 'stop_limit' or 'stop'")
