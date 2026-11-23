@@ -262,6 +262,17 @@ def test_synthetic_data_can_never_produce_a_release_verdict():
     assert "PIPELINE VERIFICATION ON SYNTHETIC DATA" in ts.to_markdown(rep)
 
 
+def test_single_fixed_configuration_is_scored_against_zero():
+    rng = np.random.default_rng(9)
+    r = rng.normal(0.001, 0.004, 600)
+    ts = TearsheetReporter({"oos": result_from_returns(r)}, n_trials=1, mc_config=mc.MonteCarloConfig(n_paths=200))
+    rep = ts.build()
+    assert rep["dsr"]["dsr"] == pytest.approx(st.probabilistic_sharpe_ratio(r, 0.0)) and rep["dsr"]["no_selection"]
+    gates = {g["gate"]: g["status"] for g in rep["gates"]}
+    assert gates["PBO (CSCV)"] == "N/A (no selection)" and gates["Deflated Sharpe Ratio"] == "PASS"
+    assert "PBO is not applicable" in ts.to_markdown(rep) and "PBO (CSCV)" not in rep["verdict"]
+
+
 def test_missing_inputs_leave_gates_unevaluated():
     rng = np.random.default_rng(7)
     ts = TearsheetReporter({"oos": result_from_returns(rng.normal(0.001, 0.004, 400))},

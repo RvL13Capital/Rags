@@ -11,8 +11,9 @@
     ndxswing ingest synthetic --db ... --symbol SYN            (pipeline verification only)
     ndxswing summary         --db ...
     ndxswing backtest        --db ... --symbol NDX --modules multi_stage_exits,trend_flip_exit
-    ndxswing walkforward     --db ... --symbol NDX --trials 150 --jobs 4 --out runs/wf
-    ndxswing ablation        --db ... --symbol NDX --trials 100 --jobs 4 --holdout-start 2024-01-01 --out runs/abl
+    ndxswing walkforward     --db ... --symbol NDX --tune none --jobs 4 --out runs/wf     (fixed priors)
+    ndxswing ablation        --db ... --symbol NDX --trials 60 --jobs 4 --holdout-start 2024-01-01 --out runs/abl
+    ndxswing backtest        --db ... --symbol NDX --instrument ucits_etf                 (long-only cash ETF track)
     ndxswing verify          --out runs/verify                  (synthetic null + planted-edge checks)
 """
 
@@ -27,7 +28,10 @@ from pathlib import Path
 
 from .analytics.montecarlo import MonteCarloConfig
 from .analytics.stats import compute_metrics
-from .config import MODULE_ORDER, BacktestConfig, CostModel, ModuleFlags, StrategyParams, ndx_fractional_cfd
+from .config import (
+    MODULE_ORDER, BacktestConfig, ModuleFlags, StrategyParams, ibkr_cfd_costs, ibkr_ibust100, micro_cfd_costs,
+    ndx_fractional_cfd, ucits_etf_costs, ucits_ndx_etf,
+)
 from .data import ingest as ing
 from .data.store import MarketDataStore
 from .data.synthetic import SYNTHETIC_SOURCE, SyntheticSpec, generate_synthetic_market
@@ -57,13 +61,31 @@ def _context(a: argparse.Namespace) -> BacktestContext:
         events = store.load_events()
     fcfg = FeatureConfig(hurst_boot=a.hurst_boot)
     fs = load_or_build_feature_set(bars, fcfg, a.cache, source=source, verbose=True)
-    costs = CostModel(spread_bps=a.spread_bps, slippage_bps=a.slippage_bps, commission_bps=a.commission_bps,
-                      commission_min=a.commission_min, financing_markup=a.financing_markup)
-    cfg = BacktestConfig(initial_equity=a.equity, instrument=ndx_fractional_cfd(a.lot_step), costs=costs)
+
+    # lots are normalised to one price level so that their size relative to a
+    # fixed account is the same in 2012 as today ("last" = final close)
+    ref = None if a.lot_reference_price == "none" else (
+        float(fs.hourly["close"].iloc[-1]) if a.lot_reference_price == "last" else float(a.lot_reference_price))
+    if a.instrument == "micro_cfd":
+        inst, costs = ndx_fractional_cfd(a.lot_step, ref), micro_cfd_costs()
+    elif a.instrument == "ibkr_cfd":
+        inst, costs = ibkr_ibust100(ref), ibkr_cfd_costs()
+    else:
+        inst, costs = ucits_ndx_etf(a.etf_price_ratio, ref), ucits_etf_costs()
+    over = {k: v for k, v in (("spread_points", a.spread_points), ("spread_bps", a.spread_bps),
+                              ("slippage_bps", a.slippage_bps), ("commission_bps", a.commission_bps),
+                              ("commission_min", a.commission_min), ("financing_markup", a.financing_markup))
+            if v is not None}
+    if "spread_bps" in over and "spread_points" not in over:
+        over["spread_points"] = None            # an explicit relative spread replaces the preset's points
+    costs = replace(costs, **over)
+    cfg = BacktestConfig(initial_equity=a.equity, instrument=inst, costs=costs)
+    print(f"[config] instrument {inst.name}: lot step {inst.lot_step:g} at reference price {ref}, "
+          f"costs {costs}", file=sys.stderr)
     if fx is None:
         print(f"[warn] no '{a.fx}' series in the store: P&L is NOT converted to EUR "
               f"(treating the instrument as account-currency quoted)", file=sys.stderr)
-        cfg = replace(cfg, instrument=replace(cfg.instrument, quote_ccy=cfg.account_ccy))
+        cfg = replace(cfg, instrument=replace(cfg.instrument, quote_ccy=cfg.account_ccy, fx_mode="pnl"))
     return BacktestContext(fs, cfg, fx, rate, events if len(events) else None)
 
 
@@ -77,17 +99,23 @@ def _add_run_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--cache", default="data/feature_cache")
     p.add_argument("--hurst-boot", type=int, default=200)
     p.add_argument("--equity", type=float, default=5000.0)
-    p.add_argument("--lot-step", type=float, default=0.01)
-    p.add_argument("--spread-bps", type=float, default=1.5)
-    p.add_argument("--slippage-bps", type=float, default=1.0)
-    p.add_argument("--commission-bps", type=float, default=0.0)
-    p.add_argument("--commission-min", type=float, default=0.0)
-    p.add_argument("--financing-markup", type=float, default=0.03)
+    p.add_argument("--instrument", choices=["micro_cfd", "ibkr_cfd", "ucits_etf"], default="micro_cfd",
+                   help="broker / vehicle preset (lot rules and cost schedule); see config.py")
+    p.add_argument("--lot-step", type=float, default=0.01, help="micro_cfd only: lot step and minimum in index units")
+    p.add_argument("--lot-reference-price", default="last",
+                   help="'last', 'none' or an index level at which the lot rules apply")
+    p.add_argument("--etf-price-ratio", type=float, default=0.0022, help="ucits_etf only: share price / index level")
+    p.add_argument("--spread-points", type=float, default=None, help="override: quoted spread in index points")
+    p.add_argument("--spread-bps", type=float, default=None, help="override: quoted spread in basis points")
+    p.add_argument("--slippage-bps", type=float, default=None)
+    p.add_argument("--commission-bps", type=float, default=None)
+    p.add_argument("--commission-min", type=float, default=None)
+    p.add_argument("--financing-markup", type=float, default=None)
     p.add_argument("--out", default="runs/latest")
 
 
 def _wf_config(a: argparse.Namespace) -> WalkForwardConfig:
-    return WalkForwardConfig(n_trials=a.trials, n_jobs=a.jobs, top_k=a.top_k)
+    return WalkForwardConfig(n_trials=a.trials, n_jobs=a.jobs, top_k=a.top_k, tune=a.tune, val_months=a.val_months)
 
 
 # ------------------------------------------------------------------ commands
@@ -164,7 +192,7 @@ def cmd_ablation(a: argparse.Namespace) -> None:
     res = eng.run(verbose=True)
     res.save(a.out)
     runner = PurgedWalkForwardRunner(ctx, res.final_flags, _wf_config(a))
-    ts = runner.tearsheet(res.final, n_configs=a.configs, n_trials_total=a.trials * res.n_variants,
+    ts = runner.tearsheet(res.final, n_configs=a.configs, extra_trials=res.variant_oos,
                           mc_config=MonteCarloConfig(n_paths=a.mc_paths),
                           meta={"ablation variants evaluated": res.n_variants})
     paths = ts.save(a.out)
@@ -229,6 +257,9 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--trials", type=int, default=100)
         p.add_argument("--top-k", type=int, default=8)
         p.add_argument("--jobs", type=int, default=1)
+        p.add_argument("--tune", choices=["thresholds", "none", "all"], default="thresholds",
+                       help="thresholds: at most 3 module thresholds; none: fixed priors; all: also entry/exit geometry")
+        p.add_argument("--val-months", type=int, default=12)
         p.add_argument("--configs", type=int, default=64, help="configurations for PBO / DSR")
         p.add_argument("--mc-paths", type=int, default=10_000)
         if name == "walkforward":

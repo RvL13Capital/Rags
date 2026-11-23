@@ -28,7 +28,9 @@ def proposal(**kw) -> SignalProposal:
     return SignalProposal(**(base | kw))
 
 
-def engine(flags=ModuleFlags(), params=StrategyParams(), inst=None, costs=NOCOST) -> PortfolioRiskEngine:
+def engine(params=StrategyParams(), flags=ModuleFlags(), inst=None, costs=NOCOST) -> PortfolioRiskEngine:
+    if isinstance(params, ModuleFlags):                      # engine(flags) shorthand
+        params, flags = StrategyParams(), params
     return PortfolioRiskEngine(params, flags, inst or ndx_fractional_cfd(), costs)
 
 
@@ -232,21 +234,85 @@ def test_fast_loss_triggers_rolling_rule_before_the_drawdown_tier():
     assert cb.m_dd == 0.5 and math.isinf(cb.leverage_cap) and not cb.can_enter
 
 
-def test_deactivation_and_resume_rebases_reference_but_not_true_peak():
-    lim = RiskLimits(pause_cooldown_days=3, deactivate_cooldown_days=5)
-    cb = CircuitBreakers(lim, 5000.0)
+def test_hard_deactivation_is_anchored_to_the_all_time_peak_and_is_terminal():
+    cb = CircuitBreakers(RiskLimits(pause_cooldown_days=3), 5000.0)
     cb.on_session_open(5000.0)
+    assert cb.hard_kill_equity == pytest.approx(4500.0)
     assert cb.on_bar_close(4490.0) and cb.deactivated                        # straight through -10%
-    for _ in range(4):
+    for _ in range(300):                                                     # no cool-down ever revives it
         cb.on_session_close(4490.0); cb.on_session_open(4490.0)
-        assert not cb.live
-    cb.on_session_close(4490.0); cb.on_session_open(4490.0)
-    assert cb.live and cb.ref_peak == 4490.0 and cb.true_peak == 5000.0 and cb.m_dd == 1.0
-    cb2 = CircuitBreakers(lim, 5000.0)
-    cb2.on_session_open(5000.0); cb2.on_bar_close(4590.0)
-    assert cb2.paused
-    cb2.on_refit(4590.0)                                                     # walk-forward re-estimation restarts it
-    assert cb2.live and cb2.ref_peak == 4590.0
+    cb.on_refit(4490.0)                                                      # ... and neither does a refit
+    assert cb.deactivated and not cb.live and cb.true_peak == 5000.0
+    # a new equity high lifts the kill level with it
+    cb = CircuitBreakers(RiskLimits(), 5000.0)
+    cb.on_session_open(5000.0); cb.on_bar_close(5200.0)
+    assert cb.hard_kill_equity == pytest.approx(4680.0)
+
+
+def test_pause_resume_cannot_step_down_past_ten_percent():
+    """The loophole: pause at -8%, re-base, lose another 8% from the lower
+    base, ... and never meet the -10% deactivation.  The pause reference is
+    re-based, the high-water mark is not."""
+    cb = CircuitBreakers(RiskLimits(pause_cooldown_days=3), 5000.0)
+    cb.on_session_open(5000.0)
+    assert cb.on_bar_close(4590.0) and cb.paused and not cb.deactivated      # -8.2%: pause
+    cb.on_session_close(4590.0)
+    cb.on_refit(4590.0)                                                      # walk-forward refit restarts it
+    assert cb.live and cb.pause_ref == 4590.0 and cb.true_peak == 5000.0
+    assert cb.m_dd == 0.25 and cb.leverage_cap == 1.0                        # still 8.2% under the real peak
+    cb.on_session_open(4590.0)
+    assert not cb.on_bar_close(4560.0)                                       # -0.7% vs the re-based reference
+    cb.on_session_close(4560.0); cb.on_session_open(4560.0)
+    assert cb.on_bar_close(4500.0)                                           # only -2% vs 4,590 but -10% vs 5,000
+    assert cb.deactivated and [e[1] for e in cb.events].count("deactivate") == 1
+    # risk comes back only with a real recovery
+    cb = CircuitBreakers(RiskLimits(pause_cooldown_days=1), 5000.0)
+    cb.on_session_open(5000.0); cb.on_bar_close(4590.0); cb.on_session_close(4590.0)
+    cb.on_session_open(4590.0)
+    assert cb.live and cb.m_dd == 0.25
+    for eq in (4640.0, 4700.0, 4760.0, 4820.0):
+        cb.on_bar_close(eq); cb.on_session_close(eq); cb.on_session_open(eq)
+    assert cb.m_dd == 1.0 and math.isinf(cb.leverage_cap)                    # back within 4% of the peak
+
+
+def test_lot_rules_are_normalised_to_a_reference_price():
+    """At index 2,500 one IBUST100 unit is USD 2,500 and looks tradable on EUR
+    5,000; at 25,000 it is not.  With a reference price the backtest applies
+    today's lot notional throughout history."""
+    from ndxswing.config import ibkr_ibust100
+
+    st = AccountState(equity=5000.0, fx_quote_to_acct=0.93)
+    old = proposal(entry_stop=2500.0, entry_limit=2501.5, stop_price=2490.0, d_stop=10.0, atr=6.6, ref_price=2499.0)
+    naive = engine(inst=ibkr_ibust100()).approve(old, st)
+    assert isinstance(naive, RiskApprovedOrder) and naive.units == 1.0       # the historical illusion
+    honest = engine(inst=ibkr_ibust100(lot_reference_price=25_000.0)).approve(old, st)
+    assert isinstance(honest, RiskRejection) and honest.reason == "below_min_lot"
+    today = engine(inst=ibkr_ibust100(lot_reference_price=25_000.0)).approve(proposal(), st)
+    assert isinstance(today, RiskRejection)                                  # 1 unit = 4.65x equity
+    micro = engine(inst=ndx_fractional_cfd(0.01, 25_000.0)).approve(old, st)
+    assert micro.lot_step == pytest.approx(0.1) and micro.units / 0.1 == pytest.approx(round(micro.units / 0.1))
+    assert micro.units * 2500.0 == pytest.approx(engine().approve(proposal(), st).units * 25_000.0, rel=0.25)
+    # a 0.1 lot cannot carry a EUR 12.50 budget with a 135 point stop at 25,000 ...
+    wide = proposal(d_stop=135.0, stop_price=24_865.0)
+    assert isinstance(engine(inst=ndx_fractional_cfd(0.1)).approve(wide, st), RiskRejection)
+    # ... but it can carry EUR 25.00, and a 0.01 lot carries both
+    assert engine(StrategyParams(b_risk=0.005), inst=ndx_fractional_cfd(0.1)).approve(wide, st).units == pytest.approx(0.1)
+    assert engine(inst=ndx_fractional_cfd(0.01)).approve(wide, st).units == pytest.approx(0.07)
+
+
+def test_points_spread_and_broker_presets():
+    from ndxswing.config import ibkr_cfd_costs, micro_cfd_costs, ucits_etf_costs, ucits_ndx_etf
+
+    c = micro_cfd_costs()
+    assert c.half_spread_at(25_000.0) == pytest.approx(0.6 / 25_000.0)
+    assert c.stressed(1.5).half_spread_at(25_000.0) == pytest.approx(0.9 / 25_000.0)
+    assert CostModel(spread_bps=2.0).half_spread_at(123.0) == pytest.approx(1e-4)
+    ib = ibkr_cfd_costs()
+    assert ib.commission(100.0) == 1.0 and ib.commission(50_000.0) == pytest.approx(5.0)   # 0.010%, minimum 1.00
+    assert ib.financing_markup == 0.015 and c.financing_markup == 0.025
+    etf = ucits_ndx_etf()
+    assert not etf.allow_short and not etf.pays_financing and etf.fx_mode == "price" and etf.lot_step == 1.0
+    assert ucits_etf_costs().financing_markup == 0.0
 
 
 def test_rolling_five_day_loss_halves_risk():

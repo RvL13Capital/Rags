@@ -1,13 +1,18 @@
 """Purged rolling walk-forward with neighbourhood-penalised Optuna search (8.2).
 
-Cycle: 36 months train -> 6 months validation -> 6 months untouched OOS,
-shifted by 3 months, with ``purge_days + embargo_days`` sessions removed
+Cycle: 36 months train -> 12 months validation -> 6 months untouched OOS,
+shifted by 3 months (a 6-month validation window holds only a handful of
+trades, which makes parameter selection a fit to small-sample luck), with ``purge_days + embargo_days`` sessions removed
 between consecutive windows so that a 5-day holding period cannot straddle a
 boundary.
 
 * The statistical layer (HMM, Hurst, GARCH, EVT) is re-estimated on rolling
   windows inside the causal feature table, so it never sees validation or OOS
   data of the date it is used on.
+* By default only the non-structural thresholds of the enabled modules are
+  tuned (at most three); Donchian window, stop multiple and holding period
+  stay at their canonical values.  With nothing to tune the fold is a pure
+  fixed-prior out-of-sample test and Optuna is not run at all.
 * Hyper-parameters are chosen per fold on the validation window only
   (objective J below); the trial is simulated from the start of the training
   window so that circuit-breaker and Kelly state are warm, but only the
@@ -48,11 +53,13 @@ SEARCH_SPACE: dict[str, tuple[str, float, float, float, str | None]] = {
     "atr_stop_mult": ("float", 1.2, 2.2, 0.1, None),
     "max_hold_days": ("int", 1, 5, 1, None),
     "p_trend_min": ("float", 0.60, 0.80, 0.02, "regime_gate"),
-    "hurst_min": ("float", 0.53, 0.60, 0.01, "hurst_gate"),
-    "z_hurdle": ("float", 0.25, 0.75, 0.05, "arma_z_filter"),
     "vpin_block_pct": ("float", 0.90, 0.99, 0.01, "vpin_filter"),
     "kelly_fraction": ("float", 0.10, 0.25, 0.02, "kelly_cap"),
+    "hurst_min": ("float", 0.53, 0.60, 0.01, "hurst_gate"),
+    "z_hurdle": ("float", 0.25, 0.75, 0.05, "arma_z_filter"),
 }
+#: entry / exit geometry: frozen at canonical values unless tune="all"
+STRUCTURAL = ("donchian_window", "atr_stop_mult", "max_hold_days")
 
 
 @dataclass
@@ -85,7 +92,7 @@ class BacktestContext:
 @dataclass(frozen=True)
 class WalkForwardConfig:
     train_months: int = 36
-    val_months: int = 6
+    val_months: int = 12
     oos_months: int = 6
     step_months: int = 3
     purge_days: int = 5
@@ -100,6 +107,15 @@ class WalkForwardConfig:
     seed: int = 13
     n_jobs: int = 1
     cost_stress: float = 1.5
+    #: "thresholds": tune only module thresholds, at most ``max_tuned`` of them
+    #: "none":       no tuning at all (fixed canonical priors)
+    #: "all":        also tune Donchian window, stop multiple and holding period
+    tune: str = "thresholds"
+    max_tuned: int = 3
+
+    def __post_init__(self) -> None:
+        if self.tune not in ("thresholds", "none", "all"):
+            raise ValueError("tune must be 'thresholds', 'none' or 'all'")
 
 
 @dataclass(frozen=True)
@@ -148,8 +164,18 @@ def make_folds(sessions: pd.DatetimeIndex, cfg: WalkForwardConfig, start: pd.Tim
 # --------------------------------------------------------------------------- #
 
 
-def active_space(flags: ModuleFlags) -> dict[str, tuple[str, float, float, float, str | None]]:
-    return {k: v for k, v in SEARCH_SPACE.items() if v[4] is None or getattr(flags, v[4])}
+def active_space(flags: ModuleFlags, tune: str = "all", max_tuned: int = 3) -> dict[str, tuple]:
+    """Parameters Optuna may move for this module set.  ``p_trend_min`` only
+    exists for the 3-state model; the parsimony benchmarks run on fixed priors."""
+    if tune == "none":
+        return {}
+    space = {k: v for k, v in SEARCH_SPACE.items() if v[4] is None or getattr(flags, v[4])}
+    if flags.regime_model != "hmm3":
+        space.pop("p_trend_min", None)
+    if tune == "thresholds":
+        keep = [k for k in space if k not in STRUCTURAL][:max_tuned]
+        space = {k: space[k] for k in keep}
+    return space
 
 
 def apply_overrides(base: StrategyParams, theta: dict) -> StrategyParams:
@@ -225,7 +251,11 @@ def _evaluate(theta: dict, fold: Fold) -> dict[str, float]:
 def _optimise_fold(k: int) -> dict:
     cfg, flags = _STATE["cfg"], _STATE["flags"]
     fold: Fold = _STATE["folds"][k]
-    space = active_space(flags)
+    space = active_space(flags, cfg.tune, cfg.max_tuned)
+    if not space:   # fixed priors: nothing is selected, the fold is a plain out-of-sample test
+        comp = _evaluate({}, fold)
+        return {"theta": {}, "j_raw": comp["j"], "j_pen": comp["j"], "nb_std": 0.0, "val": comp,
+                "trial_sharpes_pp": [comp["sharpe_pp"]], "n_evaluations": 1, "fold": k}
     evaluated: list[tuple[dict, dict]] = []
 
     def objective(trial: optuna.Trial) -> float:
@@ -234,7 +264,8 @@ def _optimise_fold(k: int) -> dict:
         evaluated.append((theta, comp))
         return comp["j"]
 
-    sampler = optuna.samplers.TPESampler(seed=cfg.seed + 1000 * k, n_startup_trials=max(10, cfg.n_trials // 4))
+    sampler = optuna.samplers.TPESampler(seed=cfg.seed + 1000 * k,
+                                         n_startup_trials=min(cfg.n_trials, max(10, cfg.n_trials // 4)))
     study = optuna.create_study(direction="maximize", sampler=sampler)
     study.optimize(objective, n_trials=cfg.n_trials, show_progress_bar=False)
 
@@ -338,26 +369,40 @@ class PurgedWalkForwardRunner:
         )
 
     # ------------------------------------------------------------ overfitting
+    @property
+    def space(self) -> dict:
+        return active_space(self.flags, self.cfg.tune, self.cfg.max_tuned)
+
     def config_trials(self, wf: WalkForwardResult, n_configs: int = 64, seed: int = 99) -> list[BacktestResult]:
         """Fixed-parameter runs of ``n_configs`` random draws from the search
         space over the stitched OOS span.  Their daily returns form the (T, N)
         matrix for CSCV-PBO and their Sharpe ratios the trial distribution of
-        the Deflated Sharpe Ratio (same sample length as the tested series)."""
+        the Deflated Sharpe Ratio (same sample length as the tested series).
+        Empty when nothing is tuned."""
+        if not self.space:
+            return []
         bt = self.ctx.backtester()
-        space = active_space(self.flags)
         lo, hi = wf.folds[0].oos_start, wf.folds[-1].oos_end
         return [bt.run(apply_overrides(self.base, th), self.flags, start=lo, end=hi)
-                for th in random_configs(space, n_configs, seed)]
+                for th in random_configs(self.space, n_configs, seed)]
 
-    def tearsheet(self, wf: WalkForwardResult, n_configs: int = 64, n_trials_total: int | None = None,
+    def tearsheet(self, wf: WalkForwardResult, n_configs: int = 64, extra_trials: list[BacktestResult] | None = None,
                   mc_config: MonteCarloConfig = MonteCarloConfig(), meta: dict | None = None,
                   title: str = "NASDAQ-100 swing system") -> TearsheetReporter:
-        trials = self.config_trials(wf, n_configs)
-        M = returns_matrix(trials)
-        active = np.abs(M).sum(axis=0) > 0
-        pbo = cscv_pbo(M, 16) if active.sum() >= 2 and len(M) >= 64 else None
-        trial_sr = np.array([sharpe_per_period(M[:, j]) for j in range(M.shape[1])])
-        n_total = n_trials_total if n_trials_total is not None else max(wf.config.n_trials, n_configs)
+        """``extra_trials`` are OOS results of other configurations that were
+        looked at before settling on this one (the ablation variants).  They
+        join the random parameter draws as trials for DSR and PBO.  With no
+        tuning and no other variants there was no selection at all: DSR then
+        reduces to the probabilistic Sharpe ratio against zero and PBO is not
+        applicable."""
+        trials = self.config_trials(wf, n_configs) + list(extra_trials or [])
+        pbo, trial_sr = None, None
+        if len(trials) >= 2:
+            M = returns_matrix(trials)
+            active = np.abs(M).sum(axis=0) > 0
+            pbo = cscv_pbo(M, 16) if active.sum() >= 2 and len(M) >= 64 else None
+            trial_sr = np.array([sharpe_per_period(M[:, j]) for j in range(M.shape[1])])
+        tuned = list(self.space)
         info = {
             "modules": ", ".join(wf.flags.enabled()) or "baseline only",
             "regime model": wf.flags.regime_model if wf.flags.regime_gate else "n/a",
@@ -365,15 +410,15 @@ class PurgedWalkForwardRunner:
                             f"{wf.config.oos_months}m OOS, step {wf.config.step_months}m, "
                             f"purge {wf.config.purge_days}d + embargo {wf.config.embargo_days}d",
             "folds": len(wf.folds),
-            "Optuna trials per fold": wf.config.n_trials,
+            "tuned parameters": ", ".join(tuned) if tuned else "none (fixed canonical priors)",
+            "Optuna trials per fold": wf.config.n_trials if tuned else 0,
             "backtests evaluated in search": wf.n_evaluations,
-            "DSR trial count N": n_total,
-            "PBO / DSR configurations": n_configs,
+            "configurations compared (DSR / PBO trials)": len(trials) if len(trials) >= 2 else "1 (no selection)",
             "instrument": self.ctx.config.instrument.name,
             "initial equity": f"{self.ctx.config.initial_equity:,.0f} {self.ctx.config.account_ccy}",
         } | (meta or {})
         return TearsheetReporter(
             {"in_sample": wf.in_sample, "validation": wf.validation, "oos": wf.oos},
-            oos_stress=wf.oos_stress, trial_sharpes=trial_sr, n_trials=n_total, pbo=pbo,
-            fold_table=wf.fold_table, mc_config=mc_config, meta=info, title=title,
+            oos_stress=wf.oos_stress, trial_sharpes=trial_sr, n_trials=len(trials) if len(trials) >= 2 else 1,
+            pbo=pbo, fold_table=wf.fold_table, mc_config=mc_config, meta=info, title=title,
         )

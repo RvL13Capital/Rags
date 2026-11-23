@@ -43,6 +43,8 @@ class RiskApprovedOrder:
     binding: str                     # which constraint set the size
     shadow: bool                     # paper-only order, never sent to the broker
     kelly_f: float
+    lot_step: float = 0.0            # effective lot step / minimum for this order (price-level normalised)
+    min_lot: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -115,7 +117,7 @@ class PortfolioRiskEngine:
         X = state.fx_quote_to_acct
         px = proposal.entry_stop * inst.price_ratio
         unit_notional = px * inst.multiplier * X
-        spread = proposal.spread_rel * c.stress if math.isfinite(proposal.spread_rel) else 2.0 * c.half_spread_frac
+        spread = proposal.spread_rel * c.stress if math.isfinite(proposal.spread_rel) else 2.0 * c.half_spread_at(px)
         var_cost_unit = unit_notional * (spread + 2.0 * c.slippage_frac + 2.0 * c.commission_bps * 1e-4 * c.stress)
         fixed_cost = 2.0 * c.commission_min * c.stress  # conservative: ticket minimum on both legs
         d_eff = p.gap_buffer * proposal.d_stop * inst.price_ratio
@@ -127,13 +129,16 @@ class PortfolioRiskEngine:
             "margin": p.margin_usage_cap * V / (unit_notional * inst.margin_rate),
         }
         binding = min(cands, key=cands.get)
-        units = floor_to_step(cands[binding], inst.lot_step)
-        if units < inst.min_lot - 1e-12:
+        lot_scale = inst.lot_reference_price / px if inst.lot_reference_price else 1.0
+        lot_step, min_lot = inst.lot_step * lot_scale, inst.min_lot * lot_scale
+        units = floor_to_step(cands[binding], lot_step)
+        if units < min_lot * (1.0 - 1e-9):
             return RiskRejection("below_min_lot")
         notional = units * unit_notional
         return RiskApprovedOrder(
             proposal=proposal, units=units, risk_budget=r_eff, planned_risk=units * risk_unit + fixed_cost,
             notional=notional, leverage=notional / V, binding=binding, shadow=shadow, kelly_f=kelly_f,
+            lot_step=lot_step, min_lot=min_lot,
         )
 
 
@@ -146,16 +151,24 @@ class PortfolioRiskEngine:
 class CircuitBreakers:
     """Portfolio drawdown state machine.
 
-    ``ref_peak`` is the drawdown reference.  After a pause / deactivation the
-    system is flat; when it resumes (cool-down elapsed or walk-forward refit)
-    the reference is re-based to current equity - otherwise a flat system
-    could never trade again.  ``true_peak`` is never reset and is what the
-    tearsheet's maximum drawdown is measured against.
+    Two references are kept apart on purpose:
+
+    * ``true_peak`` - the all-time high-water mark.  It is NEVER re-based.
+      The risk tiers (-4% / -6%) and the hard deactivation at
+      ``equity <= (1 - dd_deactivate) * true_peak`` are measured against it,
+      so a system that resumes after a pause still trades at reduced risk
+      until it has actually recovered, and cumulative losses can never step
+      down past -10% of the peak.  Deactivation is terminal within a run:
+      restarting needs re-estimation and re-validation, which is a decision
+      taken outside the simulation.
+    * ``pause_ref`` - the reference for the -8% pause.  It is re-based to
+      current equity when a pause ends (cool-down or walk-forward refit);
+      otherwise a flat, paused system could never trade again.
     """
 
     limits: RiskLimits
     initial_equity: float
-    ref_peak: float = field(init=False)
+    pause_ref: float = field(init=False)
     true_peak: float = field(init=False)
     session_open_equity: float = field(init=False)
     halted_today: bool = False
@@ -171,7 +184,7 @@ class CircuitBreakers:
     EPS = 1e-9
 
     def __post_init__(self) -> None:
-        self.ref_peak = self.true_peak = self.session_open_equity = self.initial_equity
+        self.pause_ref = self.true_peak = self.session_open_equity = self.initial_equity
         self._closes.append(self.initial_equity)
 
     # -- queries
@@ -191,28 +204,33 @@ class CircuitBreakers:
     def leverage_cap(self) -> float:
         return self._lev_cap
 
+    @property
+    def hard_kill_equity(self) -> float:
+        return (1.0 - self.limits.dd_deactivate) * self.true_peak
+
     # -- transitions
-    def _rebase(self, equity: float, why: str, stamp: object) -> None:
-        self.paused = self.deactivated = False
+    def _resume(self, equity: float, why: str, stamp: object) -> None:
+        self.paused = False
         self.resume_in = 0
-        self.ref_peak = equity
+        self.pause_ref = equity
         self._closes.clear()
         self._closes.append(equity)
         self.events.append((stamp, f"resume:{why}", equity))
 
     def on_refit(self, equity: float, stamp: object = None) -> None:
-        """Walk-forward re-estimation boundary: a halted system may restart."""
-        if not self.live:
-            self._rebase(equity, "refit", stamp)
+        """Walk-forward re-estimation boundary: a PAUSED system may restart.
+        A deactivated system stays off."""
+        if self.paused and not self.deactivated:
+            self._resume(equity, "refit", stamp)
             self._update_tiers(equity)
 
     def on_session_open(self, equity: float, stamp: object = None) -> None:
         self.halted_today = False
         self.session_open_equity = equity
-        if not self.live:
+        if self.paused and not self.deactivated:
             self.resume_in -= 1
             if self.resume_in <= 0:
-                self._rebase(equity, "cooldown", stamp)
+                self._resume(equity, "cooldown", stamp)
         self._update_tiers(equity)
 
     def on_session_close(self, equity: float) -> None:
@@ -220,7 +238,7 @@ class CircuitBreakers:
 
     def _update_tiers(self, equity: float) -> None:
         L = self.limits
-        dd = 1.0 - equity / self.ref_peak if self.ref_peak > 0 else 1.0
+        dd = 1.0 - equity / self.true_peak if self.true_peak > 0 else 1.0
         m, cap = 1.0, math.inf
         if dd >= L.dd_tier2 - self.EPS:
             m = 0.25
@@ -239,16 +257,14 @@ class CircuitBreakers:
         L = self.limits
         self.true_peak = max(self.true_peak, equity)
         if self.live:
-            self.ref_peak = max(self.ref_peak, equity)
-        dd = 1.0 - equity / self.ref_peak if self.ref_peak > 0 else 1.0
+            self.pause_ref = max(self.pause_ref, equity)
         flatten = False
-        if self.live:
-            if dd >= L.dd_deactivate - self.EPS:
-                self.deactivated, self.resume_in, flatten = True, L.deactivate_cooldown_days, True
-                self.events.append((stamp, "deactivate", equity))
-            elif dd >= L.dd_pause - self.EPS:
-                self.paused, self.resume_in, flatten = True, L.pause_cooldown_days, True
-                self.events.append((stamp, "pause", equity))
+        if not self.deactivated and equity <= self.hard_kill_equity * (1.0 + self.EPS):
+            self.deactivated, flatten = True, True
+            self.events.append((stamp, "deactivate", equity))
+        elif self.live and 1.0 - equity / self.pause_ref >= L.dd_pause - self.EPS:
+            self.paused, self.resume_in, flatten = True, L.pause_cooldown_days, True
+            self.events.append((stamp, "pause", equity))
         if not self.halted_today and self.session_open_equity > 0:
             if 1.0 - equity / self.session_open_equity >= L.intraday_loss_halt - self.EPS:
                 self.halted_today = True

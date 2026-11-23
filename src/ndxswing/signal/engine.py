@@ -264,7 +264,9 @@ class SignalEngine:
             s_hurst = np.full(n, np.nan)
             if f.hurst_gate:
                 hh, hl = self.lagged_daily("hurst"), self.lagged_daily("hurst_lcb")
-                ok = (hh >= p.hurst_min) & (hl > p.hurst_lcb_min)
+                ok = hh >= p.hurst_min
+                if f.hurst_mode == "lcb":
+                    ok = ok & (hl > p.hurst_lcb_min)
                 m_hurst = np.where(ok, np.where(hh >= max(p.hurst_strong, p.hurst_min), 1.0, 0.8), 0.0)
                 s_hurst = np.clip((hh - p.hurst_min) / 0.10, 0, 1)
                 gate("hurst", ok)
@@ -285,7 +287,7 @@ class SignalEngine:
                 mu_h, sig_h, z_h = (self.lagged_daily(f"{k}_{H}") for k in ("mu", "sigma", "z"))
                 gate("arma_z", direction * z_h > p.z_hurdle)
                 spread = np.where(np.isfinite(self.spread_rel), self.spread_rel * self.costs.stress,
-                                  2.0 * self.costs.half_spread_frac)
+                                  2.0 * self.costs.half_spread_at(c))
                 fin_daily = np.where(
                     direction > 0, self.bench_rate + self.costs.financing_markup * self.costs.stress,
                     self.costs.financing_markup * self.costs.stress - self.bench_rate,

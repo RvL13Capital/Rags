@@ -106,6 +106,15 @@ def test_hurst_gate_thresholds(synth_features):
         assert (SignalEngine(_fake_features(synth_features, hurst=h, hurst_lcb=lcb)).prepare(P, f).direction == 0).all()
 
 
+def test_hurst_point_estimate_mode_ignores_the_lower_bound(synth_features):
+    fs = _fake_features(synth_features, hurst=0.57, hurst_lcb=0.45)
+    assert (SignalEngine(fs).prepare(P, ModuleFlags(hurst_gate=True)).direction == 0).all()
+    relaxed = SignalEngine(fs).prepare(P, ModuleFlags(hurst_gate=True, hurst_mode="point"))
+    assert (relaxed.direction != 0).any() and (relaxed.m_hurst[relaxed.direction != 0] == 0.8).all()
+    with pytest.raises(ValueError):
+        ModuleFlags(hurst_mode="loose")
+
+
 def test_arma_z_and_net_expectancy_gate(synth_features):
     f = ModuleFlags(arma_z_filter=True)
     cols = lambda mu, sig: {k: v for h in (1, 2, 3, 5) for k, v in

@@ -35,36 +35,64 @@ class InstrumentSpec:
     margin_rate: float = 0.05  # ESMA retail limit 20:1 on major indices
     allow_short: bool = True
     pays_financing: bool = True
+    #: "pnl"   - P&L accrues in the quote currency and is converted (CFD);
+    #: "price" - the instrument itself is priced in the account currency and
+    #:           carries the FX move on its full notional (unhedged EUR ETF).
+    fx_mode: str = "pnl"
+    #: Price level at which ``lot_step`` / ``min_lot`` apply.  When set, the
+    #: effective step at price P is ``lot_step * reference / P`` so that one lot
+    #: is the same NOTIONAL throughout history.  Without it a 2012 backtest at
+    #: index 2,300 sees lots eleven times finer, relative to a fixed 5,000
+    #: account, than the lots that account can actually trade today.
+    lot_reference_price: float | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in ("cfd", "etf"):
             raise ValueError(f"unknown instrument kind {self.kind!r}")
+        if self.fx_mode not in ("pnl", "price"):
+            raise ValueError(f"unknown fx_mode {self.fx_mode!r}")
         if self.lot_step <= 0 or self.min_lot <= 0 or self.multiplier <= 0:
             raise ValueError("lot_step, min_lot and multiplier must be positive")
 
 
-def ndx_fractional_cfd(lot_step: float = 0.01) -> InstrumentSpec:
-    """Regulated fractional NASDAQ-100 index CFD, USD 1 per point per unit.
+def ndx_fractional_cfd(lot_step: float = 0.01, lot_reference_price: float | None = None) -> InstrumentSpec:
+    """Micro-lot NASDAQ-100 index CFD, USD 1 per point per unit, as offered by
+    EU retail CFD brokers with an API (not IBKR).
 
-    ASSUMPTION: lot step / minimum 0.01 index units.  Verify with the broker.
+    ASSUMPTION: lot step / minimum 0.01 index units (some platforms use 0.1,
+    which sizes to zero at 0.25% risk with the index near 25,000 - see README).
     """
     return InstrumentSpec(
-        name="NDX-CFD", kind="cfd", multiplier=1.0, lot_step=lot_step, min_lot=lot_step,
-        margin_rate=0.05, allow_short=True, pays_financing=True,
+        name=f"NDX-microCFD-{lot_step:g}", kind="cfd", multiplier=1.0, lot_step=lot_step, min_lot=lot_step,
+        margin_rate=0.05, allow_short=True, pays_financing=True, lot_reference_price=lot_reference_price,
     )
 
 
-def ucits_ndx_etf(price_ratio: float = 0.04) -> InstrumentSpec:
-    """Unleveraged UCITS NASDAQ-100 ETF (long only, cash funded, whole shares).
+def ibkr_ibust100(lot_reference_price: float | None = None) -> InstrumentSpec:
+    """IBKR US Tech 100 index CFD (IBUST100): multiplier 1 x index, minimum
+    order ONE whole unit (IBKR index CFD schedule, checked Nov 2026).  One unit
+    at index 25,000 is about 4.7x a EUR 5,000 account, so it sizes to zero."""
+    return InstrumentSpec(
+        name="IBKR-IBUST100", kind="cfd", multiplier=1.0, lot_step=1.0, min_lot=1.0, margin_rate=0.05,
+        allow_short=True, pays_financing=True, lot_reference_price=lot_reference_price,
+    )
 
-    ASSUMPTION: ``price_ratio`` (ETF price / index level) is a placeholder scale
-    and must be set from the actual share class.  Note that a Xetra listing
-    only overlaps the US regular session for about two hours, so stops placed
-    on US-afternoon bars cannot be worked there.
+
+def ucits_ndx_etf(price_ratio: float = 0.0022, lot_reference_price: float | None = None) -> InstrumentSpec:
+    """Unleveraged EUR-quoted UCITS NASDAQ-100 ETF: long only, cash funded,
+    whole shares, no financing, unhedged (carries EURUSD on the notional).
+
+    ASSUMPTION: ``price_ratio`` (share price in USD-equivalent / index level)
+    is a placeholder (about USD 55 per share at index 25,000) and must be set
+    from the actual share class.  Trading through the US close needs a venue
+    with retail hours to 22:00 CET (Tradegate, gettex, or Xetra's extended
+    retail service since December 2025, broker permitting); stops are assumed
+    to be managed client-side and executed as market orders.
     """
     return InstrumentSpec(
-        name="NDX-UCITS-ETF", kind="etf", multiplier=1.0, price_ratio=price_ratio,
-        lot_step=1.0, min_lot=1.0, margin_rate=1.0, allow_short=False, pays_financing=False,
+        name="NDX-UCITS-ETF", kind="etf", quote_ccy="USD", multiplier=1.0, price_ratio=price_ratio,
+        lot_step=1.0, min_lot=1.0, margin_rate=1.0, allow_short=False, pays_financing=False, fx_mode="price",
+        lot_reference_price=None if lot_reference_price is None else lot_reference_price * price_ratio,
     )
 
 
@@ -81,6 +109,8 @@ class CostModel:
     """
 
     spread_bps: float = 1.5
+    #: full quoted spread in instrument PRICE POINTS; overrides spread_bps when set
+    spread_points: float | None = None
     slippage_bps: float = 1.0
     commission_bps: float = 0.0
     commission_min: float = 0.0
@@ -96,6 +126,12 @@ class CostModel:
     def half_spread_frac(self) -> float:
         return 0.5 * self.spread_bps * 1e-4 * self.stress
 
+    def half_spread_at(self, price):  # noqa: ANN001, ANN201 - float or ndarray
+        """Half spread as a fraction of ``price`` (points-based when configured)."""
+        if self.spread_points is not None:
+            return 0.5 * self.spread_points * self.stress / price
+        return self.half_spread_frac + 0.0 * price
+
     @property
     def slippage_frac(self) -> float:
         return self.slippage_bps * 1e-4 * self.stress
@@ -105,6 +141,28 @@ class CostModel:
         if notional_acct <= 0:
             return 0.0
         return max(self.commission_min, notional_acct * self.commission_bps * 1e-4) * self.stress
+
+
+def micro_cfd_costs() -> CostModel:
+    """ASSUMPTION (user-supplied schedule for an API micro-lot CFD broker, not
+    verified against a published rate card): 1.2 index points spread, no
+    ticket fee, financing at benchmark +/- 2.5% p.a."""
+    return CostModel(spread_points=1.2, slippage_bps=1.0, commission_bps=0.0, commission_min=0.0,
+                     financing_markup=0.025)
+
+
+def ibkr_cfd_costs() -> CostModel:
+    """IBKR index CFD schedule: 0.010% per trade, USD 1.00 minimum per order
+    (booked here as 1.00 in account currency), financing benchmark +/- 1.5%.
+    ASSUMPTION: 1.0 index point quoted spread."""
+    return CostModel(spread_points=1.0, slippage_bps=1.0, commission_bps=1.0, commission_min=1.0,
+                     financing_markup=0.015)
+
+
+def ucits_etf_costs() -> CostModel:
+    """ASSUMPTION: 6 bp quoted spread in extended retail hours, 2 bp slippage
+    on client-side stop/market orders, EUR 1.00 flat ticket, no financing."""
+    return CostModel(spread_bps=6.0, slippage_bps=2.0, commission_bps=0.0, commission_min=1.0, financing_markup=0.0)
 
 
 # --------------------------------------------------------------------------- #
@@ -187,20 +245,23 @@ class StrategyParams:
         return asdict(self)
 
 
-#: Ablation order.  The baseline has every flag off.
+#: Ablation order.  The baseline has every flag off.  The Hurst gate and the
+#: ARMA Z filter are optional challengers and come last: both are expected to
+#: starve the trade count and must not sit in front of the modules that are
+#: needed for sizing.
 MODULE_ORDER: tuple[str, ...] = (
     "multi_stage_exits",   # +1.5R partial, breakeven, +2R chandelier
     "trend_flip_exit",     # exit when daily EMA20/50 flips against the trade
     "regime_gate",         # causal Markov regime gate, M_reg and stress exit
-    "hurst_gate",          # DFA Hurst + bootstrap LCB gate, M_Hurst
     "garch_vol",           # GJR-GARCH-t sigma_1d in the vol target + Ljung-Box gate
     "evt_es_cap",          # EVT/GPD ES_0.99 exposure cap
-    "arma_z_filter",       # ARMA Z_{t,H} directional hurdle + net expectancy gate
     "spread_gate",         # relative spread gate (needs bid/ask history)
     "vpin_filter",         # volume-clock VPIN toxicity filter
     "event_blackout",      # tier-1 macro / earnings blackout
     "score_sizing",        # risk scaled by (0.5 + 0.5 * S_t)
     "kelly_cap",           # exact concave LCB fractional Kelly exposure cap
+    "hurst_gate",          # challenger: DFA Hurst gate, M_Hurst
+    "arma_z_filter",       # challenger: ARMA Z_{t,H} hurdle + net expectancy gate
 )
 
 
@@ -211,6 +272,7 @@ class ModuleFlags:
     regime_gate: bool = False
     regime_model: str = "hmm3"  # "hmm3" | "hmm2" | "rv20"
     hurst_gate: bool = False
+    hurst_mode: str = "lcb"     # "lcb": H >= min AND bootstrap LCB > 0.50 (spec); "point": H >= min only
     garch_vol: bool = False
     evt_es_cap: bool = False
     arma_z_filter: bool = False
@@ -223,6 +285,8 @@ class ModuleFlags:
     def __post_init__(self) -> None:
         if self.regime_model not in ("hmm3", "hmm2", "rv20"):
             raise ValueError(f"unknown regime_model {self.regime_model!r}")
+        if self.hurst_mode not in ("lcb", "point"):
+            raise ValueError(f"unknown hurst_mode {self.hurst_mode!r}")
 
     def with_(self, **kw: Any) -> "ModuleFlags":
         return replace(self, **kw)
@@ -253,12 +317,11 @@ class RiskLimits:
     dd_pause: float = 0.08   # flatten, paper diagnostics
     dd_deactivate: float = 0.10
     tier1_leverage_cap: float = 1.0
-    #: Research-mode resume policy.  Live trading never resumes automatically.
-    #: In a backtest a paused system resumes after ``pause_cooldown_days``
-    #: sessions (or at the next walk-forward refit) with the drawdown reference
-    #: re-based to current equity; a deactivated system resumes only at a refit.
+    #: An 8% pause ends after ``pause_cooldown_days`` sessions or at the next
+    #: walk-forward refit (backtests only; live trading never resumes on its
+    #: own).  The -10% deactivation is measured against the all-time
+    #: high-water mark, is unconditional and is TERMINAL inside a backtest.
     pause_cooldown_days: int = 21
-    deactivate_cooldown_days: int = 63
 
 
 @dataclass(frozen=True)

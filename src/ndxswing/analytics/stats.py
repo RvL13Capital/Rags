@@ -122,14 +122,29 @@ def probabilistic_sharpe_ratio(returns: np.ndarray, sr_benchmark: float) -> floa
 
 
 def deflated_sharpe_ratio(returns: np.ndarray, trial_sharpes: np.ndarray, n_trials: int | None = None) -> dict:
-    sr0 = expected_max_sharpe(trial_sharpes, n_trials)
+    """Deflated Sharpe Ratio.
+
+    ``dsr`` follows the locked specification: the benchmark SR_0 includes the
+    cross-trial mean.  When the trials are siblings that share a real edge
+    that mean is itself positive, and the statistic then asks "does the chosen
+    variant beat the best that would be expected among its siblings" rather
+    than "is there an edge at all".  ``dsr_zero_mean_null`` is the original
+    Bailey / Lopez de Prado form, whose null centres the trial Sharpe ratios
+    at zero; it is reported alongside as a diagnostic.
+    """
+    s = np.asarray(trial_sharpes, dtype=float)
+    s = s[np.isfinite(s)]
+    sr0 = expected_max_sharpe(s, n_trials)
+    sr0_zero = sr0 - (float(s.mean()) if len(s) else 0.0)
     return {
         "dsr": probabilistic_sharpe_ratio(returns, sr0),
+        "dsr_zero_mean_null": probabilistic_sharpe_ratio(returns, sr0_zero),
         "sr_per_period": sharpe_per_period(returns),
         "sr0_per_period": sr0,
-        "n_trials": int(n_trials) if n_trials is not None else int(np.isfinite(trial_sharpes).sum()),
-        "trial_sr_mean": float(np.nanmean(trial_sharpes)) if len(trial_sharpes) else np.nan,
-        "trial_sr_std": float(np.nanstd(trial_sharpes, ddof=1)) if len(trial_sharpes) > 1 else np.nan,
+        "sr0_zero_mean_null": sr0_zero,
+        "n_trials": int(n_trials) if n_trials is not None else int(len(s)),
+        "trial_sr_mean": float(s.mean()) if len(s) else np.nan,
+        "trial_sr_std": float(s.std(ddof=1)) if len(s) > 1 else np.nan,
     }
 
 
@@ -184,6 +199,6 @@ def cscv_pbo(returns_matrix: np.ndarray, n_splits: int = 16) -> dict:
 
 
 def returns_matrix(results: list[BacktestResult]) -> np.ndarray:
-    """Align daily returns of several runs over the same window into (T, N)."""
-    df = pd.concat([r.daily_returns().rename(i) for i, r in enumerate(results)], axis=1).fillna(0.0)
+    """Daily returns of several runs on their COMMON dates as (T, N)."""
+    df = pd.concat([r.daily_returns().rename(i) for i, r in enumerate(results)], axis=1, join="inner").fillna(0.0)
     return df.to_numpy()

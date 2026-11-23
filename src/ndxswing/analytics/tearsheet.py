@@ -18,7 +18,7 @@ import pandas as pd
 from ..backtest.engine import BacktestResult
 from ..data.synthetic import SYNTHETIC_SOURCE
 from .montecarlo import MonteCarloConfig, run_monte_carlo
-from .stats import compute_metrics, deflated_sharpe_ratio
+from .stats import compute_metrics, deflated_sharpe_ratio, probabilistic_sharpe_ratio, sharpe_per_period
 
 SEGMENTS = ("in_sample", "validation", "oos", "paper", "live")
 SEGMENT_TITLES = {"in_sample": "In-Sample", "validation": "Validation", "oos": "Out-of-Sample",
@@ -137,7 +137,19 @@ class TearsheetReporter:
         dsr = None
         if oos is not None and self.trial_sharpes is not None and len(self.trial_sharpes) >= 2:
             dsr = deflated_sharpe_ratio(oos.daily_returns().to_numpy(), self.trial_sharpes, self.n_trials)
+        elif oos is not None and self.n_trials == 1:
+            # a single configuration was run and nothing was selected: the
+            # benchmark Sharpe under the null is zero (DSR == PSR(0))
+            r = oos.daily_returns().to_numpy()
+            psr0 = probabilistic_sharpe_ratio(r, 0.0)
+            dsr = {"dsr": psr0, "dsr_zero_mean_null": psr0, "sr_per_period": sharpe_per_period(r),
+                   "sr0_per_period": 0.0, "sr0_zero_mean_null": 0.0, "n_trials": 1, "trial_sr_mean": float("nan"),
+                   "trial_sr_std": float("nan"), "no_selection": True}
         report["dsr"] = dsr
+        report["breakers"] = None if oos is None else {
+            "pauses": oos.stats.get("n_pauses"), "deactivated_at": oos.stats.get("deactivated_at"),
+            "true_peak": oos.stats.get("true_peak"), "max_dd_intrabar": oos.stats.get("max_dd_bar"),
+        }
         report["pbo"] = self.pbo
         stress = None
         if self.oos_stress is not None:
@@ -185,17 +197,20 @@ class TearsheetReporter:
     def _verdict(self, gates: list[dict], synthetic: bool) -> str:
         # PBO is filled in here because it lives outside the per-segment metrics
         for gate in gates:
-            if gate["gate"].startswith("PBO") and self.pbo is not None:
-                gate["value"] = self.pbo["pbo"]
-                gate["status"] = "PASS" if self.pbo["pbo"] < 0.25 else "FAIL"
-        statuses = [g["status"] for g in gates]
+            if gate["gate"].startswith("PBO"):
+                if self.pbo is not None:
+                    gate["value"] = self.pbo["pbo"]
+                    gate["status"] = "PASS" if self.pbo["pbo"] < 0.25 else "FAIL"
+                elif self.n_trials == 1:
+                    gate["status"] = "N/A (no selection)"
+        statuses = ["PASS" if g["status"].startswith("N/A") else g["status"] for g in gates]
         if synthetic:
             return ("PIPELINE VERIFICATION ONLY - synthetic data. No empirical conclusion about the "
                     "NASDAQ-100 can be drawn. NOT READY FOR LIVE DEPLOYMENT.")
         if all(s == "PASS" for s in statuses):
             return ("OOS release gates passed: eligible for Phase 3 paper trading (8-12 weeks). "
                     "NOT READY FOR LIVE DEPLOYMENT until paper trading confirms.")
-        failed = [g["gate"] for g in gates if g["status"] != "PASS"]
+        failed = [g["gate"] for g in gates if g["status"] != "PASS" and not g["status"].startswith("N/A")]
         return "NOT READY FOR LIVE DEPLOYMENT - gates not passed: " + "; ".join(failed)
 
     # -------------------------------------------------------------- rendering
@@ -227,12 +242,26 @@ class TearsheetReporter:
             vs = "n/a" if v is None else (f"{v:.4f}" if isinstance(v, float) else str(v))
             L.append(f"| {g['gate']} | {vs} | {g['rule']} | {g['status']} |")
         L.append("")
+        if rep.get("breakers"):
+            b = rep["breakers"]
+            off = b["deactivated_at"]
+            L += [f"Circuit breakers in the OOS run: {b['pauses']} pause(s) at -8%; hard deactivation at -10% of the "
+                  f"all-time peak: {'none' if off is None else 'YES, on ' + str(off)[:10] + ' (no trading afterwards)'}. "
+                  f"Maximum drawdown is always measured from the un-rebased high-water mark.", ""]
         if rep["dsr"]:
             d = rep["dsr"]
-            L += ["## Overfitting diagnostics", "",
-                  f"- Deflated Sharpe Ratio: **{_fmt(d['dsr'], 'f4')}** (per-period SR {d['sr_per_period']:.4f} "
-                  f"vs expected maximum under the null SR0 {d['sr0_per_period']:.4f}, N = {d['n_trials']} trials, "
-                  f"cross-trial mean {d['trial_sr_mean']:.4f}, std {d['trial_sr_std']:.4f})"]
+            L += ["## Overfitting diagnostics", ""]
+            if d.get("no_selection"):
+                L.append(f"- One fixed configuration, nothing selected: DSR equals the probabilistic Sharpe ratio "
+                         f"against zero, **{_fmt(d['dsr'], 'f4')}** (per-period SR {d['sr_per_period']:.4f}). "
+                         f"PBO is not applicable.")
+            else:
+                L.append(f"- Deflated Sharpe Ratio: **{_fmt(d['dsr'], 'f4')}** (per-period SR {d['sr_per_period']:.4f} "
+                         f"vs expected maximum under the null SR0 {d['sr0_per_period']:.4f}, N = {d['n_trials']} trials, "
+                         f"cross-trial mean {d['trial_sr_mean']:.4f}, std {d['trial_sr_std']:.4f}). "
+                         f"With the null centred at zero instead (original Bailey / Lopez de Prado form, "
+                         f"SR0 {d['sr0_zero_mean_null']:.4f}) it is {_fmt(d['dsr_zero_mean_null'], 'f4')}; the gate "
+                         f"uses the first figure.")
             if rep["pbo"]:
                 p = rep["pbo"]
                 L.append(f"- PBO (CSCV, {p['n_combinations']} splits of {p['n_configs']} configurations): "

@@ -161,7 +161,8 @@ class EventDrivenBacktester:
         else:
             self._x = [1.0] * e.n
         costs = config.costs
-        hs = np.where(np.isfinite(e.spread_rel), 0.5 * e.spread_rel * costs.stress, costs.half_spread_frac)
+        hs = np.where(np.isfinite(e.spread_rel), 0.5 * e.spread_rel * costs.stress,
+                      costs.half_spread_at(e.close * ratio))
         self._hs = hs.tolist()
         self._rate = e.bench_rate.tolist()
         sess_dates = e.sessions
@@ -228,6 +229,16 @@ class EventDrivenBacktester:
         peak_bar, max_dd_bar = init_eq, 0.0
         prev_seg = seg_l[i0] if i1 > i0 else 0
 
+        fx_in_price = inst.fx_mode == "price"
+
+        def trade_pnl(ps: _Position, units: float, px: float, x: float) -> float:
+            """P&L in account currency.  A CFD accrues quote-currency P&L that
+            is converted at the current rate; an account-currency ETF carries
+            the FX move on the whole notional."""
+            if fx_in_price:
+                return units * mult * ps.direction * (px * x - ps.entry_px * ps.entry_fx)
+            return units * mult * (px - ps.entry_px) * ps.direction * x
+
         # ---- fill helpers -------------------------------------------------
         def exit_fill(i: int, units: float, ref_px: float, slip: bool, reason: str) -> None:
             """Close ``units`` at reference (mid) price ``ref_px``."""
@@ -237,7 +248,7 @@ class EventDrivenBacktester:
             sl_px = ref_px * slip_f if slip else 0.0
             px = ref_px - ps.direction * (hs_px + sl_px)
             x = X[i]
-            pnl = units * mult * (px - ps.entry_px) * ps.direction * x
+            pnl = trade_pnl(ps, units, px, x)
             notional = units * mult * px * x
             comm = costs.commission(notional)
             ps.realized += pnl
@@ -260,7 +271,7 @@ class EventDrivenBacktester:
             nonlocal cash, pos
             ps = pos
             x = X[i]
-            pnl = units * mult * (px - ps.entry_px) * ps.direction * x
+            pnl = trade_pnl(ps, units, px, x)
             notional = units * mult * px * x
             comm = costs.commission(notional)
             ps.realized += pnl
@@ -339,9 +350,11 @@ class EventDrivenBacktester:
             ps = pos
             d = ps.direction
             ps.tp1_done = True
-            q = math.floor(ps.params.tp1_fraction * ps.units_init / inst.lot_step + 1e-9) * inst.lot_step
-            q = round(q, 10)
-            if ps.units_init >= 2 * inst.min_lot - 1e-12 and q >= inst.min_lot and ps.units - q >= inst.min_lot - 1e-12:
+            step = ps.order.lot_step or inst.lot_step       # effective (price-level normalised) lot
+            lot = ps.order.min_lot or inst.min_lot
+            q = round(math.floor(ps.params.tp1_fraction * ps.units_init / step + 1e-9) * step, 10)
+            tol = lot * 1e-9
+            if ps.units_init >= 2 * lot - tol and q >= lot - tol and ps.units - q >= lot - tol:
                 fill = ps.tp1_px
                 gap_px = o[i] - d * o[i] * HS[i]          # bid (long) / ask (short) at the open
                 if ps.entry_i != i and (gap_px - fill) * d > 0:
@@ -355,7 +368,7 @@ class EventDrivenBacktester:
         def equity_now(i: int) -> float:
             if pos is None or pos.shadow:
                 return cash
-            return cash + pos.units * mult * (c[i] - pos.entry_px) * pos.direction * X[i]
+            return cash + trade_pnl(pos, pos.units, c[i], X[i])
 
         def account_state() -> AccountState:
             return AccountState(
@@ -520,6 +533,9 @@ class EventDrivenBacktester:
             tdf["shadow"] = tdf["shadow"].astype(bool)
         stats.update(
             max_dd_bar=max_dd_bar, breaker_events=list(breakers.events), funnel=dict(prep.funnel),
+            n_pauses=sum(1 for ev in breakers.events if ev[1] == "pause"),
+            deactivated_at=next((ev[0] for ev in breakers.events if ev[1] == "deactivate"), None),
+            true_peak=breakers.true_peak, instrument=inst.name,
             n_sessions=len(equity), source=e.features.source, cost_stress=costs.stress,
         )
         return BacktestResult(equity=equity, trades=tdf, initial_equity=init_eq, stats=stats)

@@ -14,7 +14,10 @@ Profit factor and ES_0.99 lifts are reported alongside.  Special cases:
   volatility-switching model and a deterministic RV20 percentile filter; the
   SIMPLEST variant within ``parsimony_margin`` Sharpe of the best is the one
   carried forward;
-* ARMA directional filter - evaluated only if the Pesaran-Timmermann test of
+* Hurst gate - a challenger evaluated late: first the specification gate
+  (point estimate and bootstrap lower bound), then a point-estimate-only
+  version; neither sits in the baseline;
+* ARMA directional filter - a challenger evaluated only if the Pesaran-Timmermann test of
   the forecast sign is significant (p < 0.05) on non-overlapping horizons;
 * modules whose input data is missing are reported as skipped, never faked.
 
@@ -61,6 +64,7 @@ class AblationResult:
     pt_test: dict
     holdout: dict | None
     trade_floor: int
+    variant_oos: list   # stitched OOS result of every variant examined (trials for DSR / PBO)
 
     def to_markdown(self) -> str:
         t = self.table
@@ -148,6 +152,7 @@ class SequentialAblationEngine:
         base_wf, cur = self._walk_forward(flags)
         cur_wf = base_wf
         n_variants = 1
+        variant_oos = [base_wf.oos]
         row(0, "baseline", "-", "BASELINE", cur, None)
         floor = int(min(cfg.min_trades, max(1, 0.5 * cur["n_trades"])))
         pt: dict = {}
@@ -173,6 +178,7 @@ class SequentialAblationEngine:
                     log(f"{module} [{variant}]")
                     wf, m = self._walk_forward(flags.with_(regime_gate=True, regime_model=variant))
                     n_variants += 1
+                    variant_oos.append(wf.oos)
                     tried.append((variant, wf, m))
                 best = max(m["sharpe"] for _, _, m in tried)
                 pick = next(v for v, _, m in tried if m["sharpe"] >= best - cfg.parsimony_margin)
@@ -185,10 +191,27 @@ class SequentialAblationEngine:
                 if any(r["status"] == "RETAINED" and r["step"] == step for r in rows):
                     flags, cur_wf, cur = new
                 continue
+            if module == "hurst_gate":
+                # spec gate first (H >= min and bootstrap LCB > 0.50); if that
+                # is not retained, the relaxed point-estimate-only version
+                for mode in ("lcb", "point"):
+                    log(f"{module} [{mode}]")
+                    cand = flags.with_(hurst_gate=True, hurst_mode=mode)
+                    wf, m = self._walk_forward(cand)
+                    n_variants += 1
+                    variant_oos.append(wf.oos)
+                    if accept(m, cur):
+                        row(step, module, mode, "RETAINED", m, cur)
+                        flags, cur_wf, cur = cand, wf, m
+                        break
+                    why = "trade starvation" if m["n_trades"] < floor else "no OOS net gain"
+                    row(step, module, mode, f"rejected ({why})", m, cur)
+                continue
             log(module)
             cand = flags.with_(**{module: True})
             wf, m = self._walk_forward(cand)
             n_variants += 1
+            variant_oos.append(wf.oos)
             if accept(m, cur):
                 row(step, module, "-", "RETAINED", m, cur)
                 flags, cur_wf, cur = cand, wf, m
@@ -207,5 +230,5 @@ class SequentialAblationEngine:
                 holdout = {"start": str(hs.date()), **{k: hm[k] for k in KEYS}}
         return AblationResult(
             table=pd.DataFrame(rows), final_flags=flags, baseline=base_wf, final=final_wf, n_variants=n_variants,
-            pt_test=pt, holdout=holdout, trade_floor=floor,
+            pt_test=pt, holdout=holdout, trade_floor=floor, variant_oos=variant_oos,
         )

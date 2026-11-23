@@ -34,14 +34,14 @@ def test_fold_geometry_purge_and_embargo():
         assert pos[f.val_start] - pos[f.train_end] - 1 == 10
         assert pos[f.oos_start] - pos[f.val_end] - 1 == 10
         assert 740 <= pos[f.train_end] - pos[f.train_start] + 1 <= 790          # ~36 months
-        assert 120 <= pos[f.val_end] - pos[f.val_start] + 1 <= 135              # ~6 months
+        assert 245 <= pos[f.val_end] - pos[f.val_start] + 1 <= 270              # ~12 months
         assert 120 <= pos[f.oos_end] - pos[f.oos_start] + 1 <= 135
     for a, b in zip(folds, folds[1:]):
         step = pos[b.train_start] - pos[a.train_start]
         assert 58 <= step <= 68                                                 # shifted by ~3 months
         assert b.oos_start > a.oos_start and b.val_end < b.oos_start
     assert folds[-1].oos_end <= sessions[-1]
-    assert make_folds(sessions[:600], cfg) == []
+    assert make_folds(sessions[:900], cfg) == []
     held = make_folds(sessions, cfg, end=pd.Timestamp("2022-12-31"))
     assert held and held[-1].oos_end <= pd.Timestamp("2022-12-31")
 
@@ -63,6 +63,24 @@ def test_search_space_matches_spec_ranges_and_modules():
     assert p.vpin_halve_pct <= p.vpin_block_pct
 
 
+def test_default_tuning_policy_freezes_structure():
+    """Default: geometry frozen, at most three module thresholds tuned; the
+    challengers (Hurst, ARMA Z) sit at the end of the ablation order."""
+    cfg = WalkForwardConfig()
+    assert (cfg.train_months, cfg.val_months, cfg.oos_months, cfg.step_months, cfg.tune) == (36, 12, 6, 3, "thresholds")
+    assert active_space(ModuleFlags(), cfg.tune) == {}                          # baseline: nothing to tune
+    assert list(active_space(ModuleFlags(regime_gate=True), cfg.tune)) == ["p_trend_min"]
+    assert active_space(ModuleFlags(regime_gate=True, regime_model="rv20"), cfg.tune) == {}
+    full = active_space(ModuleFlags.full(), cfg.tune, cfg.max_tuned)
+    assert len(full) == 3 and not set(full) & set(wfm.STRUCTURAL)
+    assert active_space(ModuleFlags.full(), "none") == {}
+    assert MODULE_ORDER[-2:] == ("hurst_gate", "arma_z_filter")
+    assert MODULE_ORDER.index("garch_vol") < MODULE_ORDER.index("hurst_gate")
+    assert not any(getattr(ModuleFlags.baseline(), m) for m in MODULE_ORDER)
+    with pytest.raises(ValueError):
+        WalkForwardConfig(tune="everything")
+
+
 # -------------------------------------------------------- walk-forward (small)
 
 
@@ -76,7 +94,8 @@ def small_ctx():
     return BacktestContext(fs, BacktestConfig(), m["fx"], m["rate"], m["events"])
 
 
-SMALL_WF = WalkForwardConfig(train_months=18, val_months=6, oos_months=6, step_months=6, n_trials=6, top_k=2)
+SMALL_WF = WalkForwardConfig(train_months=18, val_months=6, oos_months=6, step_months=6, n_trials=6, top_k=2,
+                             tune="all")
 
 
 def test_walk_forward_end_to_end(small_ctx, tmp_path):
@@ -110,6 +129,27 @@ def test_walk_forward_end_to_end(small_ctx, tmp_path):
         assert rep["segments"][seg] is not None
     paths = ts.save(tmp_path)
     assert "Walk-forward folds" in paths["markdown"].read_text()
+
+
+def test_fixed_prior_walk_forward_has_no_selection(small_ctx):
+    from dataclasses import replace
+    from ndxswing.analytics.montecarlo import MonteCarloConfig
+
+    runner = PurgedWalkForwardRunner(small_ctx, ModuleFlags(), replace(SMALL_WF, tune="none"))
+    wf = runner.run()
+    assert wf.n_evaluations == len(wf.folds)                                  # one run per fold, no search
+    assert all(p == StrategyParams() for p in wf.fold_params)
+    assert runner.config_trials(wf) == []
+    rep = runner.tearsheet(wf, mc_config=MonteCarloConfig(n_paths=200)).build()
+    gates = {g["gate"]: g["status"] for g in rep["gates"]}
+    assert gates["PBO (CSCV)"] == "N/A (no selection)" and rep["pbo"] is None
+    assert rep["dsr"]["no_selection"] and rep["dsr"]["sr0_per_period"] == 0.0
+    assert rep["meta"]["tuned parameters"].startswith("none")
+    # with other variants on the table the same run is judged against them
+    other = small_ctx.backtester().run(StrategyParams(donchian_window=30), ModuleFlags(),
+                                       start=wf.folds[0].oos_start, end=wf.folds[-1].oos_end)
+    rep2 = runner.tearsheet(wf, extra_trials=[wf.oos, other], mc_config=MonteCarloConfig(n_paths=200)).build()
+    assert rep2["dsr"]["n_trials"] == 2 and "no_selection" not in rep2["dsr"]
 
 
 def test_validation_objective_never_sees_oos_data(small_ctx):
@@ -160,7 +200,7 @@ def test_sequential_ablation_small(small_ctx, tmp_path):
         assert getattr(res.final_flags, mod) == retained
         if retained:
             assert row["d_sharpe"] >= cfg.min_sharpe_lift and row["n_trades"] >= res.trade_floor
-    assert res.n_variants == 4 and res.holdout is not None and res.holdout["start"] == "2016-07-01"
+    assert res.n_variants == 4 == len(res.variant_oos) and res.holdout is not None and res.holdout["start"] == "2016-07-01"
     md = res.save(tmp_path).read_text()
     assert "Untouched holdout" in md and "| 0 | baseline |" in md
     assert set(cfg.candidates) <= set(MODULE_ORDER)

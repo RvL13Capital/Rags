@@ -296,6 +296,72 @@ def test_fx_conversion_uses_usd_to_eur_orientation():
         EventDrivenBacktester(ScriptedEngine(fs, ZERO_COSTS, {}), BacktestConfig(instrument=ndx_fractional_cfd()))
 
 
+def test_shadow_trades_pay_the_same_costs_as_real_ones(monkeypatch):
+    """Paper (shadow) trades feed the Kelly sample, so they must carry spread,
+    slippage, commission and financing exactly like live trades."""
+    from dataclasses import replace
+    from ndxswing.risk.engine import PortfolioRiskEngine
+
+    costs = CostModel(spread_bps=2.0, slippage_bps=1.0, commission_bps=0.5, commission_min=0.2, financing_markup=0.03,
+                      default_benchmark_rate=0.03)
+
+    def scenario():
+        bars = flat_market()
+        set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)
+        return run(bars, {S: LONG}, params=P.with_(max_hold_days=3), costs=costs)
+
+    live = one_trade(scenario())
+    real_approve = PortfolioRiskEngine.approve
+    monkeypatch.setattr(PortfolioRiskEngine, "approve", lambda self, pr, st: replace(real_approve(self, pr, st), shadow=True))
+    res = scenario()
+    paper = one_trade(res)
+    assert paper["shadow"] and not live["shadow"]
+    for col in ("entry_px", "exit_px", "units", "commission", "spread_cost", "slippage_cost", "financing", "net_pnl",
+                "underlying_return", "r_multiple"):
+        assert paper[col] == pytest.approx(live[col]), col
+    assert live["financing"] > 0 and live["commission"] > 0 and live["spread_cost"] > 0
+    assert (res.equity == 5000.0).all() and len(res.real_trades()) == 0      # nothing touches the account
+
+
+def test_points_spread_fills():
+    costs = CostModel(spread_points=0.2, slippage_bps=0.0, commission_bps=0.0, financing_markup=0.0,
+                      default_benchmark_rate=0.0)
+    bars = flat_market()
+    set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)
+    set_bar(bars, S + 2, 101.2, 101.4, 98.5, 98.8)
+    t = one_trade(run(bars, {S: LONG}, costs=costs))
+    assert t["entry_px"] == pytest.approx(101.0 + 0.1 * 101.0 / 101.2)       # half of 0.2 points, quoted off the bar close
+    assert t["exit_px"] == pytest.approx(99.0 - 0.1 * 99.0 / 98.8)
+
+
+def test_unhedged_eur_etf_carries_fx_on_the_notional():
+    """EUR-quoted ETF on a USD index: P&L = shares * (P1 * X1 - P0 * X0).
+    Index falls 101 -> 99 while the dollar rallies from 0.80 to 1.00 EUR."""
+    import pandas as pd
+    from dataclasses import replace
+    from ndxswing.backtest.engine import EventDrivenBacktester
+    from ndxswing.config import BacktestConfig, ndx_fractional_cfd, ucits_ndx_etf
+    from ndxswing.features.pipeline import build_feature_set
+    from tests.conftest import FAST, ZERO_COSTS, ScriptedEngine
+
+    bars = flat_market()
+    set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)
+    set_bar(bars, 5 * 7 + 1, 100.0, 100.2, 98.5, 98.8)                       # stop at 99 three sessions later
+    fs = build_feature_set(bars, FAST, n_jobs=1)
+    eurusd = pd.Series([1.25] * 3 + [1.0] * (len(fs.sessions) - 3), index=fs.sessions)
+    etf = ucits_ndx_etf(price_ratio=1.0)
+    bt = EventDrivenBacktester(ScriptedEngine(fs, ZERO_COSTS, {S: LONG}), BacktestConfig(instrument=etf, costs=ZERO_COSTS),
+                               fx=eurusd)
+    t = one_trade(bt.run(P, BASE))
+    assert t["units"] == 6.0                                                 # floor(12.5 / (2.5 * 0.8)) whole shares
+    assert t["net_pnl"] == pytest.approx(6.0 * (99.0 * 1.0 - 101.0 * 0.8))
+    assert t["financing"] == 0.0 and t["sessions_held"] == 4
+    cfd = EventDrivenBacktester(ScriptedEngine(fs, ZERO_COSTS, {S: LONG}),
+                                BacktestConfig(instrument=replace(ndx_fractional_cfd(), lot_step=1.0, min_lot=1.0),
+                                               costs=ZERO_COSTS), fx=eurusd)
+    assert one_trade(cfd.run(P, BASE))["net_pnl"] == pytest.approx(6.0 * (99.0 - 101.0) * 1.0)
+
+
 def test_drawdown_pause_flattens_and_blocks_real_entries():
     """Repeated gap losses push the drawdown through 8%: the system must stop
     sending real orders and later signals may only be paper (shadow) trades."""
