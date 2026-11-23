@@ -18,7 +18,9 @@ Profit factor and ES_0.99 lifts are reported alongside.  Special cases:
   (point estimate and bootstrap lower bound), then a point-estimate-only
   version; neither sits in the baseline;
 * ARMA directional filter - a challenger evaluated only if the Pesaran-Timmermann test of
-  the forecast sign is significant (p < 0.05) on non-overlapping horizons;
+  the forecast sign is significant (p < 0.05) on non-overlapping horizons; when the
+  forecast never changes sign the statistic is 0/0 and the test is reported as
+  undefined (still blocked: fail closed);
 * modules whose input data is missing are reported as skipped, never faked.
 
 Because retention decisions look at OOS results, the OOS curve of every
@@ -45,6 +47,9 @@ from .walkforward import BacktestContext, PurgedWalkForwardRunner, WalkForwardCo
 REGIME_VARIANTS = ("rv20", "hmm2", "hmm3")   # simplest first
 REGIME_COLUMNS = {"rv20": "rv20_pct", "hmm2": "p2_stress", "hmm3": "p_trend"}
 KEYS = ("sharpe", "calmar", "profit_factor", "es_99", "max_drawdown", "n_trades", "net_pnl")
+#: the Pesaran-Timmermann statistic is 0/0 when forecast (or realised) signs never vary
+PT_UNDEFINED = "undefined (degenerate sign variance)"
+PT_TOO_FEW = "undefined (fewer than 30 observations)"
 
 
 @dataclass(frozen=True)
@@ -94,8 +99,10 @@ class AblationResult:
               + (f" (regime model: {self.final_flags.regime_model})" if self.final_flags.regime_gate else ""), ""]
         if self.pt_test:
             p = self.pt_test
-            L += [f"Pesaran-Timmermann test of the ARMA forecast sign (H={p['horizon']}d, n={p['n']}): "
-                  f"statistic {p['stat']:.3f}, p-value {p['pvalue']:.4f}.", ""]
+            outcome = (f"statistic {p['stat']:.3f}, p-value {p['pvalue']:.4f}" if np.isfinite(p["pvalue"])
+                       else f"{p.get('note', PT_UNDEFINED)}; forecast sign positive on "
+                            f"{100 * p.get('share_forecast_up', float('nan')):.1f}% of the points")
+            L += [f"Pesaran-Timmermann test of the ARMA forecast sign (H={p['horizon']}d, n={p['n']}): {outcome}.", ""]
         if self.holdout:
             h = self.holdout
             L += [f"**Untouched holdout from {h['start']}** (never used for a retention decision): "
@@ -134,7 +141,11 @@ class SequentialAblationEngine:
         df = pd.DataFrame({"f": d[f"mu_{H}"], "a": fwd}).dropna()
         df = df[(df.index >= wf.folds[0].oos_start) & (df.index <= wf.folds[-1].oos_end)].iloc[::H]
         stat, p = pesaran_timmermann(df["a"].to_numpy(), df["f"].to_numpy())
-        return {"horizon": H, "n": int(len(df)), "stat": stat, "pvalue": p}
+        out = {"horizon": H, "n": int(len(df)), "stat": stat, "pvalue": p,
+               "share_forecast_up": float((df["f"] > 0).mean()) if len(df) else float("nan")}
+        if not np.isfinite(p):
+            out["note"] = PT_TOO_FEW if len(df) < 30 else PT_UNDEFINED
+        return out
 
     def run(self, verbose: bool = False) -> AblationResult:
         cfg = self.cfg
@@ -173,8 +184,9 @@ class SequentialAblationEngine:
                 continue
             if module == "arma_z_filter":
                 pt = self._pt_test(cur_wf)
-                if not pt or not (pt["pvalue"] < cfg.pt_alpha):
-                    row(step, module, "-", "BLOCKED (Pesaran-Timmermann not significant)", None, None)
+                if not pt or not (pt["pvalue"] < cfg.pt_alpha):   # NaN compares False: fail closed
+                    why = pt.get("note", "not significant") if pt else "not available"
+                    row(step, module, "-", f"BLOCKED (Pesaran-Timmermann {why})", None, None)
                     continue
             if module == "regime_gate":
                 tried = []

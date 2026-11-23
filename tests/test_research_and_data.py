@@ -132,7 +132,28 @@ def test_walk_forward_end_to_end(small_ctx, tmp_path):
     for seg in ("in_sample", "validation", "oos"):
         assert rep["segments"][seg] is not None
     paths = ts.save(tmp_path)
-    assert "Walk-forward folds" in paths["markdown"].read_text()
+    md = paths["markdown"].read_text()
+    assert "Walk-forward folds" in md and "Stability over time (informational, not a gate)" in md
+    # survival gates are also evaluated on a replay at the 0.75% ceiling: same signals and fold parameters
+    ceil = runner.replay_at_risk(wf)
+    assert rep["risk_ceiling"]["b_risk"] == 0.0075 and rep["risk_ceiling"]["n_trades"] == len(ceil.real_trades())
+    assert ceil.equity.index.equals(wf.oos.equity.index)
+    t0, t1 = wf.oos.real_trades(), ceil.real_trades()
+    assert t1["units"].mean() > t0["units"].mean()                           # larger risk budget, larger positions
+    names = [g["gate"] for g in rep["gates"]]
+    assert "OOS maximum drawdown at the 0.75% risk ceiling" in names and not any("folds" in x.lower() for x in names)
+    # non-overlapping six-month slices cover the stitched OOS span once
+    st_ = rep["stability"]
+    assert sum(x["sessions"] for x in st_["table"]) == len(wf.oos.equity)
+    assert st_["profitable"] + st_["losing"] + st_["inactive"] == st_["n_slices"]
+    # holdout column and prior trials are carried into the report
+    mid = wf.oos.equity.index[len(wf.oos.equity) // 2]
+    rep_h = runner.tearsheet(wf, n_configs=8, holdout_start=mid, prior_eff_trials=5.0,
+                             mc_config=__import__("ndxswing").analytics.montecarlo.MonteCarloConfig(n_paths=200)).build()
+    assert rep_h["segments"]["holdout"] is not None and rep_h["holdout_start"] == str(mid.date())
+    assert rep_h["segments"]["holdout"]["n_days"] == int((wf.oos.equity.index >= mid).sum())
+    assert rep_h["dsr"]["prior_eff_trials"] == 5.0 and rep_h["dsr"]["n_eff"] == pytest.approx(rep["dsr"]["n_eff"] + 5.0)
+    assert rep_h["dsr"]["sr0_per_period"] > rep["dsr"]["sr0_per_period"] and not rep_h["selection_on_oos"]
 
 
 def test_fixed_prior_walk_forward_has_no_selection(small_ctx):
@@ -212,6 +233,45 @@ def test_sequential_ablation_small(small_ctx, tmp_path):
     md = res.save(tmp_path).read_text()
     assert "Untouched holdout" in md and "| 0 | baseline |" in md
     assert set(cfg.candidates) <= set(MODULE_ORDER)
+    # the tearsheet of an ablated configuration says the OOS column is not selection-free
+    from ndxswing.analytics.montecarlo import MonteCarloConfig
+    runner = PurgedWalkForwardRunner(small_ctx, res.final_flags, SMALL_WF)
+    ts = runner.tearsheet(res.final, n_configs=4, extra_trials=res.variant_oos, holdout_start=cfg.holdout_start,
+                          mc_config=MonteCarloConfig(n_paths=200))
+    rep = ts.build()
+    assert rep["selection_on_oos"] and rep["segments"]["holdout"] is not None
+    assert rep["segments"]["holdout"]["n_trades"] == res.holdout["n_trades"]
+    text = ts.to_markdown(rep)
+    assert "not selection-free" in text and "untouched by selection" not in text
+
+
+def test_degenerate_forecast_sign_is_reported_as_undefined_and_stays_blocked():
+    from types import SimpleNamespace
+
+    from ndxswing.research.ablation import PT_TOO_FEW, PT_UNDEFINED, AblationResult
+
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    rng = np.random.default_rng(3)
+    r = rng.normal(0.0, 0.01, 600)
+    eng = SequentialAblationEngine.__new__(SequentialAblationEngine)
+    eng.base = StrategyParams()
+    wf = SimpleNamespace(folds=[SimpleNamespace(oos_start=idx[0], oos_end=idx[-1])])
+
+    def pt(mu: np.ndarray, folds=wf) -> dict:
+        eng.ctx = SimpleNamespace(features=SimpleNamespace(daily=pd.DataFrame({"r": r, "mu_3": mu}, index=idx)))
+        return eng._pt_test(folds)
+
+    flat = pt(np.full(600, 0.001))                        # the forecast never changes sign: 0 / 0
+    assert np.isnan(flat["stat"]) and np.isnan(flat["pvalue"]) and flat["note"] == PT_UNDEFINED
+    assert flat["share_forecast_up"] == 1.0 and not (flat["pvalue"] < AblationConfig().pt_alpha)   # fail closed
+    few = pt(np.full(600, 0.001), SimpleNamespace(folds=[SimpleNamespace(oos_start=idx[0], oos_end=idx[40])]))
+    assert few["note"] == PT_TOO_FEW
+    fwd = pd.Series(r).rolling(3).sum().shift(-3).fillna(0.0).to_numpy()
+    good = pt(np.where(fwd > 0, 0.001, -0.001))           # a forecast that knows the sign
+    assert "note" not in good and good["pvalue"] < 0.001
+    md = AblationResult(table=pd.DataFrame(columns=["step"]), final_flags=ModuleFlags(), baseline=None, final=None,
+                        n_variants=1, pt_test=flat, holdout=None, trade_floor=1, variant_oos=[]).to_markdown()
+    assert PT_UNDEFINED in md and "p-value nan" not in md
 
 
 # ------------------------------------------------------------------------ store

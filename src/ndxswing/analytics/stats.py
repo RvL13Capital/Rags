@@ -154,8 +154,13 @@ def expected_max_sharpe_zero_null(trial_sharpes: np.ndarray, n_eff: float) -> fl
     return float(max(0.0, s.std(ddof=1) * z))
 
 
-def deflated_sharpe_ratio(returns: np.ndarray, trial_sharpes: np.ndarray, n_trials: int | None = None,
-                          rho_bar: float = 0.0) -> dict:
+def _expected_max_z(n: float) -> float:
+    """E[max of n standard normals], Bailey & Lopez de Prado's approximation."""
+    return float((1.0 - EULER_GAMMA) * norm.ppf(1.0 - 1.0 / n) + EULER_GAMMA * norm.ppf(1.0 - 1.0 / (n * np.e)))
+
+
+def deflated_sharpe_ratio(returns: np.ndarray, trial_sharpes: np.ndarray | None, n_trials: int | None = None,
+                          rho_bar: float = 0.0, prior_eff_trials: float = 0.0) -> dict:
     """Deflated Sharpe Ratio of ``returns`` given the K configurations compared.
 
     dsr                   release gate: zero-mean null, correlation-adjusted
@@ -166,24 +171,95 @@ def deflated_sharpe_ratio(returns: np.ndarray, trial_sharpes: np.ndarray, n_tria
                           variant beats its siblings, not whether an edge exists
     psr_zero              informational: probabilistic Sharpe ratio against
                           zero, i.e. what the gate would be with N_eff = 1
+
+    ``prior_eff_trials`` carries effective trials from EARLIER research on data
+    that has since been looked at (N_eff_prior).  They are independent of the
+    current family, so their Sharpe estimates vary with the sampling variance
+    of a zero-edge Sharpe ratio, 1 / T per period, not with the (narrow)
+    spread inside the current family:
+
+        N_eff_total = N_eff_cur + N_eff_prior
+        V_total     = 1 / T                                          (K_cur = 1)
+        V_total     = (N_eff_cur V_cur + N_eff_prior / T) / N_eff_total   (K_cur > 1)
+        SR_0        = sqrt(V_total) z(N_eff_total)
+
+    With ``prior_eff_trials = 0`` nothing changes: SR_0 = sqrt(V_cur) z(N_eff_cur),
+    and SR_0 = 0 when a single configuration was examined.
     """
-    s = np.asarray(trial_sharpes, dtype=float)
+    r = np.asarray(returns, dtype=float)
+    s = np.asarray([] if trial_sharpes is None else trial_sharpes, dtype=float)
     s = s[np.isfinite(s)]
-    k = int(n_trials) if n_trials is not None else int(len(s))
-    n_eff = effective_trials(k, rho_bar)
-    sr0 = expected_max_sharpe_zero_null(s, n_eff)
-    sr0_mean = expected_max_sharpe(s, k)
+    k = int(n_trials) if n_trials is not None else max(int(len(s)), 1)
+    prior = float(prior_eff_trials)
+    if prior < 0:
+        raise ValueError("prior_eff_trials must be >= 0")
+    n_cur = effective_trials(k, rho_bar) if k > 1 else 1.0
+    v_cur = float(s.var(ddof=1)) if (k > 1 and len(s) >= 2) else 0.0
+    if prior > 0:
+        n_tot = n_cur + prior
+        t_days = max(len(r), 1)
+        v_tot = 1.0 / t_days if k <= 1 else (n_cur * v_cur + prior / t_days) / n_tot
+        sr0 = float(max(0.0, np.sqrt(v_tot) * _expected_max_z(n_tot)))
+    else:
+        n_tot, v_tot = n_cur, v_cur
+        sr0 = expected_max_sharpe_zero_null(s, n_cur)
+    sr0_mean = expected_max_sharpe(s, k) if len(s) >= 2 else float("nan")
     return {
-        "dsr": probabilistic_sharpe_ratio(returns, sr0),
-        "dsr_cross_trial_mean": probabilistic_sharpe_ratio(returns, sr0_mean),
-        "psr_zero": probabilistic_sharpe_ratio(returns, 0.0),
-        "sr_per_period": sharpe_per_period(returns),
+        "dsr": probabilistic_sharpe_ratio(r, sr0),
+        "dsr_cross_trial_mean": probabilistic_sharpe_ratio(r, sr0_mean) if np.isfinite(sr0_mean) else float("nan"),
+        "psr_zero": probabilistic_sharpe_ratio(r, 0.0),
+        "sr_per_period": sharpe_per_period(r),
         "sr0_per_period": sr0,
         "sr0_cross_trial_mean": sr0_mean,
-        "n_trials": k, "n_eff": n_eff, "rho_bar": float(rho_bar),
+        "n_trials": k, "n_eff": float(n_tot), "rho_bar": float(rho_bar) if k > 1 else 1.0,
         "trial_sr_mean": float(s.mean()) if len(s) else np.nan,
         "trial_sr_std": float(s.std(ddof=1)) if len(s) > 1 else np.nan,
+        "n_eff_current": float(n_cur), "prior_eff_trials": prior, "sr_variance_total": float(v_tot),
     }
+
+
+def slice_stability(result: BacktestResult, months: int = 6, min_fraction: float = 0.8) -> dict:
+    """Net P&L of consecutive NON-overlapping calendar slices of one equity
+    curve (informational: how evenly the result is spread over time).
+
+    A slice is profitable when the equity at its last close exceeds the equity
+    entering it; trades are attributed by entry date.  A final slice shorter
+    than ``min_fraction`` of a full one is listed but not counted.  Slices in
+    which nothing was traded and nothing was carried are reported separately
+    as inactive rather than as losses.
+    """
+    eq = result.equity
+    rows: list[dict] = []
+    if len(eq) == 0:
+        return {"months": months, "n_slices": 0, "profitable": 0, "losing": 0, "inactive": 0, "active": 0,
+                "share_profitable": float("nan"), "share_profitable_active": float("nan"), "table": rows}
+    idx = eq.index
+    t = result.real_trades()
+    ent = pd.DatetimeIndex(t["entry_session"]) if len(t) else pd.DatetimeIndex([])
+    k = 0
+    while True:
+        a = idx[0] + pd.DateOffset(months=months * k)
+        b = idx[0] + pd.DateOffset(months=months * (k + 1))
+        if a > idx[-1]:
+            break
+        sub = eq[(idx >= a) & (idx < b)]
+        if len(sub):
+            before = eq[idx < a]
+            init = float(before.iloc[-1]) if len(before) else float(result.initial_equity)
+            n_tr = int(((ent >= a) & (ent < b)).sum())
+            pnl = float(sub.iloc[-1]) - init
+            rows.append({"slice": k, "start": sub.index[0], "end": sub.index[-1], "sessions": int(len(sub)),
+                         "net_pnl": pnl, "trades": n_tr, "complete": bool(len(sub) >= min_fraction * 21 * months),
+                         "inactive": bool(n_tr == 0 and abs(pnl) < 1e-9)})
+        k += 1
+    full = [x for x in rows if x["complete"]]
+    inactive = sum(x["inactive"] for x in full)
+    prof = sum(x["net_pnl"] > 0 for x in full)
+    active = len(full) - inactive
+    return {"months": months, "n_slices": len(full), "profitable": int(prof), "losing": int(active - prof),
+            "inactive": int(inactive), "active": int(active),
+            "share_profitable": prof / len(full) if full else float("nan"),
+            "share_profitable_active": prof / active if active else float("nan"), "table": rows}
 
 
 # --------------------------------------------------------------------------- #

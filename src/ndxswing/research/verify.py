@@ -18,12 +18,17 @@ NASDAQ-100:
    lots normalised to today's index level.
    This checks the sizing mechanics per broker; it is not a cost forecast.
 4. ENTRY ORDER comparison: the specified stop-limit against a plain stop.
+5. OPERATING CHARACTERISTICS of the release battery on many independent
+   histories: fixed priors (nothing selected) and, separately, with the full
+   sequential ablation and its tuning active (``ablation_operating_characteristics``,
+   one resumable result file per history).
 
 No number printed here is evidence about any real market.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -198,8 +203,107 @@ def gate_operating_characteristics(end: str, seeds: range = range(100, 140), str
         return pd.DataFrame(pool.map(_oc_one, tasks, chunksize=1))
 
 
+def _abl_one(args: tuple) -> dict:
+    """One synthetic history through the complete research path: full feature
+    set, sequential ablation with tuning, release battery on the retained
+    configuration and, for reference, on the fixed-prior baseline."""
+    edge, seed, end, trials, mc_paths, out_dir = args
+    f = None if out_dir is None else Path(out_dir) / f"edge{edge:g}_seed{seed}.json"
+    if f is not None and f.exists():
+        return json.loads(f.read_text())
+    from ..features.pipeline import build_feature_set
+
+    t0 = time.time()
+    m = generate_synthetic_market(SyntheticSpec(edge=edge, end=end, seed=seed))
+    fs = build_feature_set(m["hourly"], FeatureConfig(), source=m["source"], n_jobs=1)
+    ctx = _context(m, fs)
+    wf_cfg = WalkForwardConfig(n_trials=trials, n_jobs=1, top_k=4)
+    mc = MonteCarloConfig(n_paths=mc_paths)
+    abl = SequentialAblationEngine(ctx, wf_cfg, AblationConfig()).run()
+    rep = PurgedWalkForwardRunner(ctx, abl.final_flags, wf_cfg).tearsheet(
+        abl.final, extra_trials=abl.variant_oos, mc_config=mc).build()
+    rep0 = PurgedWalkForwardRunner(ctx, abl.baseline.flags, WalkForwardConfig(tune="none")).tearsheet(
+        abl.baseline, mc_config=mc).build()
+
+    def side(r: dict) -> dict:
+        gates = {g["gate"]: g["status"] for g in r["gates"]}
+        o, d, st = r["segments"]["oos"], r["dsr"] or {}, r["stability"] or {}
+        return {"sharpe": o["sharpe"], "profit_factor": o["profit_factor"], "n_trades": o["n_trades"],
+                "net_pnl": o["net_pnl"], "max_drawdown": o["max_drawdown"], "dsr": d.get("dsr"), "n_eff": d.get("n_eff"),
+                "n_trials": d.get("n_trials"), "prob_oos_loss": (r["pbo"] or {}).get("prob_oos_loss"),
+                "ceiling_max_drawdown": (r["risk_ceiling"] or {}).get("max_drawdown"),
+                "ceiling_mc_p_dd_20": (r["risk_ceiling"] or {}).get("mc_p_dd_20"),
+                "slices_profitable_share": st.get("share_profitable"), "fold_windows_profitable_share":
+                (r["folds"] or {}).get("profitable_share"),
+                "all_pass": all(v == "PASS" or v.startswith("N/A") for v in gates.values()),
+                "failed": [k for k, v in gates.items() if v == "FAIL"]}
+
+    out = {"edge": edge, "seed": seed, "trials": trials, "retained": list(abl.final_flags.enabled()),
+           "regime_model": abl.final_flags.regime_model if abl.final_flags.regime_gate else None,
+           "n_variants": abl.n_variants, "final": side(rep), "baseline": side(rep0), "seconds": time.time() - t0}
+    out = json.loads(json.dumps(out, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
+    if f is not None:
+        f.write_text(json.dumps(out))
+    return out
+
+
+def ablation_operating_characteristics(end: str, seeds: range, edge: float, trials: int = 40, jobs: int = 4,
+                                       mc_paths: int = 2000, out_dir: str | Path | None = None) -> list[dict]:
+    """Release battery on independent synthetic histories WITH the sequential
+    ablation and its Optuna tuning active: ``edge = 0`` measures the
+    false-pass rate under selection, ``edge > 0`` the power.  Results are
+    cached per history in ``out_dir`` so an interrupted batch resumes."""
+    import multiprocessing as mp
+
+    if out_dir is not None:
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+    tasks = [(edge, sd, end, trials, mc_paths, None if out_dir is None else str(out_dir)) for sd in seeds]
+    with mp.get_context("fork").Pool(jobs) as pool:
+        return pool.map(_abl_one, tasks, chunksize=1)
+
+
+def load_ablation_oc(out_dir: str | Path) -> list[dict]:
+    return [json.loads(f.read_text()) for f in sorted(Path(out_dir).glob("edge*_seed*.json"))]
+
+
+def _ablation_oc_section(records: list[dict]) -> list[str]:
+    """Markdown summary of ``ablation_operating_characteristics`` batches."""
+    if not records:
+        return []
+    df = pd.DataFrame([{"edge": r["edge"], "seed": r["seed"], "retained": ", ".join(r["retained"]) or "none",
+                        **{f"final_{k}": v for k, v in r["final"].items()},
+                        **{f"base_{k}": v for k, v in r["baseline"].items()}} for r in records])
+    L = ["## Operating characteristics with the full ablation", "",
+         "Each history goes through the whole research path: full feature set, sequential ablation of every module "
+         "with its thresholds tuned, then the release battery on whatever configuration the ablation retained "
+         "(the variants examined count as trials). The fixed-prior baseline of the same history is shown beside it.",
+         "",
+         "| Planted strength | Histories (seeds) | Pass, fixed-prior baseline | Pass, after ablation | "
+         "Median OOS Sharpe, baseline / after ablation | Nothing retained | Gates failed after ablation |",
+         "|---:|---|---:|---:|---:|---:|---|"]
+    for k, g in df.groupby("edge"):
+        counts = pd.Series([x for f in g["final_failed"] for x in f]).value_counts()
+        top = "; ".join(f"{name} ({n})" for name, n in counts.items()) or "none"
+        L.append(f"| {k:g} | {len(g)} ({g['seed'].min()}-{g['seed'].max()}) | {int(g['base_all_pass'].sum())} | "
+                 f"{int(g['final_all_pass'].sum())} | {g['base_sharpe'].median():.2f} / {g['final_sharpe'].median():.2f} | "
+                 f"{int((g['retained'] == 'none').sum())} | {top} |")
+    L.append("")
+    pos = df[df["edge"] > 0]
+    if len(pos):
+        hi = pos[pos["final_sharpe"] > 0.80]
+        c = pd.Series([x for f in hi["final_failed"] for x in f]).value_counts()
+        L += [f"Planted-edge histories whose retained configuration has an OOS Sharpe above 0.80: {len(hi)}, of which "
+              f"{int(hi['final_all_pass'].sum())} pass every gate"
+              + (f" (failures: {'; '.join(f'{n} ({v})' for n, v in c.items())})." if len(c) else "."), ""]
+    return L
+
+
 def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int = 4, mc_paths: int = 10_000,
                               years: float = 15.0, seed: int = 42, planted_edge: float = 2.0) -> bool:
+    """Writes ``VERIFICATION.md`` and the two tearsheets.  With-ablation
+    operating characteristics are slow (about ten minutes per history) and are
+    produced separately by ``ablation_operating_characteristics`` into
+    ``<out_dir>/ablation_oc``; whatever is found there is summarised."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     cache = out / "feature_cache"
@@ -349,13 +453,15 @@ def run_pipeline_verification(out_dir: str | Path, trials: int = 40, jobs: int =
         *oc_rows(), "",
         "The first row estimates the false-positive rate of the battery, the second its power against an edge of "
         "this size. Thresholds: Sharpe > 0.80, DSR > 0.95, P(OOS loss) < 15%, profit factor > 1.20, positive under "
-        "1.5x costs, max drawdown < 10%, Monte Carlo P(DD >= 20%) < 2%, profitable folds >= 65%, trades >= 150.", "",
+        "1.5x costs, max drawdown < 10% and Monte Carlo P(DD >= 20%) < 2% (both at the run's risk budget and "
+        "replayed at the 0.75% ceiling), trades >= 100. The share of profitable folds is informational.", "",
+        *_ablation_oc_section(load_ablation_oc(out / "ablation_oc")),
         "## How strong must an edge be to be seen?", "",
         "Fixed-prior baseline, no tuning, stitched walk-forward OOS, same seed. Strength 1 is a drift of 0.12% a day "
         "inside trend regimes against roughly 0.9% daily volatility; the positive control above uses strength "
         f"{planted_edge:g}.", "",
         "| Planted strength | Trend drift / day | OOS Sharpe | OOS PF | Expectancy (R) | Trades | Net P&L (EUR) | "
-        "Profitable folds |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "Profitable fold windows (info) |", "|---:|---:|---:|---:|---:|---:|---:|---:|",
         *[f"| {r['edge']:g} | {100 * r['trend_drift_per_day']:.2f}% | {r['sharpe']:.2f} | {r['profit_factor']:.2f} | "
           f"{r['expectancy_r']:.3f} | {r['trades']} | {r['net_pnl']:.2f} | {100 * r['profitable_folds']:.0f}% |"
           for r in sens.to_dict(orient="records")], "",

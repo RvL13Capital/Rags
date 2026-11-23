@@ -279,6 +279,10 @@ BROKER_PRESETS: tuple[str, ...] = ("capital_com_eu_leveraged", "capital_com_eu_u
 # --------------------------------------------------------------------------- #
 
 
+#: hard ceiling on the risk budget per trade (the post-validation tier; burn-in is 0.0025)
+B_RISK_CEILING = 0.0075
+
+
 @dataclass(frozen=True)
 class StrategyParams:
     # --- entry structure (section 5.2 / 5.4)
@@ -339,7 +343,7 @@ class StrategyParams:
     def __post_init__(self) -> None:
         if not 0.10 <= self.kelly_fraction <= 0.25:
             raise ValueError("kelly_fraction must lie in [0.10, 0.25]")
-        if self.b_risk > 0.0075 + 1e-12:
+        if self.b_risk > B_RISK_CEILING + 1e-12:
             raise ValueError("b_risk above the 0.75% hard ceiling")
         if self.max_leverage > 1.5 + 1e-12:
             raise ValueError("max_leverage above the 1.5x hard cap")

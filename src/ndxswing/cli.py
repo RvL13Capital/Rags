@@ -17,6 +17,8 @@
     ndxswing ablation        --db ... --symbol NDX --trials 60 --jobs 4 --holdout-start 2024-01-01 --out runs/abl
     ndxswing backtest        --db ... --symbol NDX --instrument ucits_etf                 (long-only cash ETF track)
     ndxswing verify          --out runs/verify                  (synthetic null + planted-edge checks)
+    ndxswing ablation-oc     --out runs/verify/ablation_oc --edge 0 --seeds 100:140   (false-pass rate under selection)
+    ndxswing walkforward     --db ... --symbol NDX --prior-eff-trials 9.3                (trials already spent on this market)
 """
 
 from __future__ import annotations
@@ -218,7 +220,8 @@ def cmd_walkforward(a: argparse.Namespace) -> None:
                                      StrategyParams(b_risk=a.b_risk))
     wf = runner.run(verbose=True)
     _lot_warning(wf.oos.stats, a)
-    ts = runner.tearsheet(wf, n_configs=a.configs, mc_config=MonteCarloConfig(n_paths=a.mc_paths))
+    ts = runner.tearsheet(wf, n_configs=a.configs, mc_config=MonteCarloConfig(n_paths=a.mc_paths),
+                          prior_eff_trials=a.prior_eff_trials)
     paths = ts.save(a.out)
     wf.fold_table.to_csv(Path(a.out) / "folds.csv", index=False)
     print(paths["markdown"].read_text())
@@ -236,10 +239,20 @@ def cmd_ablation(a: argparse.Namespace) -> None:
     ts = runner.tearsheet(res.final, n_configs=a.configs, extra_trials=res.variant_oos,
                           mc_config=MonteCarloConfig(n_paths=a.mc_paths),
                           meta={"ablation variants evaluated": res.n_variants,
-                                "largest search space in any variant": res.max_tuned})
+                                "largest search space in any variant": res.max_tuned},
+                          holdout_start=a.holdout_start, prior_eff_trials=a.prior_eff_trials)
     paths = ts.save(a.out)
     print(res.to_markdown())
     print(paths["markdown"].read_text())
+
+
+def cmd_ablation_oc(a: argparse.Namespace) -> None:
+    from .research.verify import _ablation_oc_section, ablation_operating_characteristics
+
+    lo, hi = (int(x) for x in a.seeds.split(":"))
+    end = f"{2012 + int(a.years) - 1}-10-30" if a.years < 15 else "2026-10-30"
+    recs = ablation_operating_characteristics(end, range(lo, hi), a.edge, a.trials, a.jobs, a.mc_paths, a.out)
+    print("\n".join(_ablation_oc_section(recs)))
 
 
 def cmd_verify(a: argparse.Namespace) -> None:
@@ -314,6 +327,9 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("--val-months", type=int, default=12)
         p.add_argument("--configs", type=int, default=64, help="configurations for PBO / DSR")
         p.add_argument("--mc-paths", type=int, default=10_000)
+        p.add_argument("--prior-eff-trials", type=float, default=0.0,
+                       help="effective independent trials already spent on this market in earlier research "
+                            "(N_eff_prior, see docs/governance); they raise the DSR benchmark. 0 = none")
         if name == "walkforward":
             p.add_argument("--modules", default="baseline")
             p.add_argument("--regime-model", default="hmm3")
@@ -321,6 +337,17 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--holdout-start", default=None)
             p.add_argument("--min-trades", type=int, default=200)
         p.set_defaults(fn=fn)
+
+    po = sub.add_parser("ablation-oc", help="synthetic histories through the full ablation: false-pass rate "
+                                            "(--edge 0) or power (--edge 2) of the release battery")
+    po.add_argument("--out", default="runs/verify/ablation_oc", help="one result file per history (resumable)")
+    po.add_argument("--edge", type=float, default=0.0)
+    po.add_argument("--seeds", default="100:140", help="first:last (exclusive)")
+    po.add_argument("--trials", type=int, default=40)
+    po.add_argument("--jobs", type=int, default=4)
+    po.add_argument("--mc-paths", type=int, default=2000)
+    po.add_argument("--years", type=float, default=15.0)
+    po.set_defaults(fn=cmd_ablation_oc)
 
     pv = sub.add_parser("verify", help="synthetic pipeline verification (null and planted-edge data)")
     pv.add_argument("--out", default="runs/verify")
