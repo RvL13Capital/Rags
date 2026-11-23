@@ -93,7 +93,7 @@ project; the last column says what I could cross-check on public pages.
 | Preset | Lot rule | Costs | Cross-check |
 |---|---|---|---|
 | `capital_com_eu_leveraged` (default) | USD 1 per point per contract, minimum and step 0.001 | 1.8 pt spread, no commission, SOFR ± 4.0% on ACT/360 (0.01111% a day admin fee), 0.7% conversion mark-up on realised P&L and funding for a EUR account | Minimum 0.001, the 0.01111% daily fee with SOFR and the 0.7% retail conversion mark-up all match Capital.com's pages. The spread is a live quote and will move. A REST and WebSocket API is documented officially; that EU accounts can use it is stated by a third-party review, and I found no official EU statement |
-| `capital_com_eu_unleveraged_1to1` | as above | 1.8 pt spread, no commission, no overnight funding, no conversion mark-up (USD sub-account), gross exposure ≤ 1.0× equity | Capital.com states that 1:1 positions on most markets carry no overnight funding. See the two caveats below |
+| `capital_com_eu_unleveraged_1to1` | as above | 1.8 pt spread, no commission, no overnight funding, 0.7% conversion mark-up on realised P&L (EUR account), gross exposure up to 0.95× equity | Capital.com states that 1:1 positions on most markets carry no overnight funding |
 | `pepperstone_eu_ctrader` | USD 1 per point per lot, minimum and step 0.10 | 1.0 pt spread on Razor (`--spread-points 1.2` for Standard), no index commission, overnight rate ± 2.5% on ACT/360 | No index commission is stated by Pepperstone; "from about 1.0 pt" is its advertised spread; 0.1 lot matches the one third-party figure found |
 | `ibkr_cfd` | IBUST100, whole units only | 0.010% (min USD 1.00), benchmark ± 1.5%, 1.0 pt spread assumed | Commission, minimum, multiplier and financing spread checked against IBKR's schedule. Sizes to zero on EUR 5,000 |
 | `ucits_etf` | whole shares, long only, EUR-quoted and unhedged | 6 bp spread, 2 bp slippage, EUR 1 ticket, no financing | Assumptions; set `--etf-price-ratio` for the actual share class |
@@ -110,10 +110,34 @@ Three things follow from the corrected schedules:
   below roughly 0.35–0.50% risk. That is why the default preset changed.
 - **The leveraged preset assumes a EUR account**, so the 0.7% conversion mark-up is on by default.
   Pass `--fx-conversion-fee 0` for a USD sub-account.
-- **The 1:1 preset is tighter than its name suggests, and one thing about it is not modelled.**
-  A 1:1 position posts its full notional as margin, so the sizing rule that caps margin use at
-  50% of equity limits exposure to 0.5× equity, below the 1.0× vehicle cap. And a USD sub-account
-  means the cash balance itself moves with EURUSD; the simulation still books equity in EUR.
+- **The 1:1 preset is sized as a cash-backed vehicle.** The rule that initial margin may use at
+  most 50% of equity applies to leveraged margin products, which face the ESMA 50% margin
+  close-out. A vehicle that posts its full notional (`margin_rate >= 1`) may use up to 95% of
+  equity instead, so the 1:1 preset reaches about 0.95× exposure. The same rule now applies to
+  the cash ETF preset, which was previously held to 0.5× as well. The 1:1 preset is modelled as a
+  EUR account: no overnight funding, 0.7% conversion mark-up on realised P&L.
+
+### Broker execution notes (Capital.com)
+
+These matter for the execution adapter and for how far live fills can be expected to match the
+simulator.
+
+- **No native stop-limit.** `POST /api/v1/workingorders` creates a `LIMIT` or a `STOP` order
+  (confirmed in the API reference). The strategy's entry is a stop-limit, and the simulator fills
+  it as one: never above the limit (trigger + 0.15 ATR), and when a bar opens between the limit
+  and the anti-chase bound (trigger + 0.50 ATR) it waits for a pullback to the limit. A plain
+  `STOP` would fill at market in that band, up to 0.35 ATR worse than simulated. The adapter
+  therefore has to emulate the limit: watch the price stream, and when the trigger trades send a
+  `LIMIT` at the limit price, or check the open against the limit before any order is working.
+  Until that emulation has been measured in paper trading, treat entry-fill parity as unproven.
+- **Guaranteed and trailing stops are mutually exclusive** (as reported for this endpoint; the
+  reference lists `guaranteedStop` and `trailingStop` as separate optional flags and does not
+  state the restriction, so confirm it on the demo server). The system does not need the broker's
+  trailing stop: the chandelier level is recomputed at each hourly close and sent as an amended
+  stop. That leaves the guaranteed stop available, but its premium and its effect on gap-through
+  losses are not modelled; the simulator assumes ordinary stops that fill at the open after a gap.
+- **Sessions expire after ten minutes without activity**, so the heartbeat that drives the
+  kill-switch also has to keep the session alive.
 
 **Lot rules are normalised to one index level** (`--lot-reference-price`, default `last` = the final
 close). One lot is then the same notional throughout history. Without this, a 2012 backtest at
@@ -278,10 +302,10 @@ tearsheet refuses to issue a release verdict for synthetic data.
 6. **Costs per trade decide the vehicle, and funding is the largest of them.** In the synthetic
    run at EUR 12.50 risk, a leveraged Capital.com trade in a EUR account cost about EUR 1.17:
    funding 58%, spread and slippage 29%, conversion mark-up 13%. That is roughly 0.09R a trade.
-   The 1:1 version cost about EUR 0.33, because it pays no funding and no conversion mark-up, and
-   at this risk budget it gives up no size: average exposure was 0.28× equity, well inside its
-   0.5× limit. The limit starts to bind at 0.50% risk. The ETF pays no funding either, but a
-   EUR 1 ticket on each leg is EUR 2 a round trip, 0.16R on its own.
+   The 1:1 version cost about EUR 0.49, because it pays no funding, and it gives up no size:
+   average exposure was 0.28×, 0.39× and 0.52× of equity at 0.25%, 0.35% and 0.50% risk, the same
+   as the leveraged preset. The ETF pays no funding either, but a EUR 1 ticket on each leg is
+   EUR 2 a round trip, 0.16R on its own.
 7. **What the locked gates do, measured on synthetic histories.** Fixed-prior baseline on the
    leveraged Capital.com preset, 40 independent histories each, complete battery: with no edge,
    0 of 40 pass (which bounds the false-positive rate below about 7.5% at 95% confidence); with
@@ -307,6 +331,7 @@ Sources for the broker and venue facts:
 [Capital.com US Tech 100, EU page](https://capital.com/en-eu/markets/indices/us-tech-100-index),
 [Capital.com charges and fees](https://capital.com/charges-and-fees),
 [Capital.com public API](https://open-api.capital.com/),
+[Capital.com API request examples](https://capital.com/api-request-examples),
 [Capital.com API from Germany (third-party review)](https://brokerchooser.com/broker-reviews/capitalcom-review/capitalcom-api-algorithmic-trading-from-germany),
 [Pepperstone index CFDs](https://pepperstone.com/global/trading/instruments/index-cfds).
 

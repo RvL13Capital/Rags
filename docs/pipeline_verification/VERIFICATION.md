@@ -3,7 +3,7 @@
 > **PIPELINE VERIFICATION - SYNTHETIC DATA.** These results exercise the code on simulated prices.
 > They are not empirical market performance and say nothing about the NASDAQ-100.
 
-Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 262s.
+Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 244s.
 
 | Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (gate) | N_eff | DSR (cross-trial mean, info) | CSCV P(OOS loss) | Rank PBO | Gates failed |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -78,7 +78,7 @@ Risk per trade 0.25% (EUR 12.50):
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Capital.com EU leveraged, 0.001 lot, EUR account | 644 | 0 | 0 | 263 | 0.28x | 1640.68 | 128.46 | 40.38 | 179.13 |
 | Capital.com EU leveraged, 0.001 lot, USD sub-account | 644 | 0 | 0 | 263 | 0.28x | 1686.83 | 88.39 | 0.00 | 179.96 |
-| Capital.com EU 1:1, 0.001 lot, no funding | 644 | 0 | 0 | 263 | 0.28x | 1855.23 | 87.94 | 0.00 | 0.00 |
+| Capital.com EU 1:1, 0.001 lot, EUR account, no funding | 644 | 0 | 0 | 263 | 0.28x | 1841.68 | 128.58 | 39.52 | 0.00 |
 | Pepperstone EU cTrader Razor, 0.10 lot | 290 | 645 | 0 | 121 | 0.30x | 746.10 | 36.06 | 0.00 | 53.00 |
 | IBKR IBUST100, 1 unit | 0 | 1204 | 0 | 0 | 0.00x | 0.00 | 0.00 | 0.00 | 0.00 |
 | UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.21x | 155.96 | 324.85 | 0.00 | 0.00 |
@@ -89,10 +89,10 @@ Risk per trade 0.35% (EUR 17.50):
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Capital.com EU leveraged, 0.001 lot, EUR account | 644 | 0 | 0 | 263 | 0.39x | 2389.45 | 188.31 | 59.24 | 266.84 |
 | Capital.com EU leveraged, 0.001 lot, USD sub-account | 644 | 0 | 0 | 263 | 0.39x | 2462.89 | 129.73 | 0.00 | 268.70 |
-| Capital.com EU 1:1, 0.001 lot, no funding | 644 | 0 | 0 | 263 | 0.36x | 2488.68 | 120.43 | 0.00 | 0.00 |
+| Capital.com EU 1:1, 0.001 lot, EUR account, no funding | 644 | 0 | 0 | 263 | 0.39x | 2712.63 | 189.34 | 58.28 | 0.00 |
 | Pepperstone EU cTrader Razor, 0.10 lot | 519 | 231 | 0 | 213 | 0.33x | 1693.59 | 75.21 | 0.00 | 111.05 |
 | IBKR IBUST100, 1 unit | 0 | 1204 | 0 | 0 | 0.00x | 0.00 | 0.00 | 0.00 | 0.00 |
-| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.30x | 312.87 | 366.01 | 0.00 | 0.00 |
+| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.31x | 345.77 | 368.29 | 0.00 | 0.00 |
 
 Risk per trade 0.50% (EUR 25.00):
 
@@ -100,9 +100,9 @@ Risk per trade 0.50% (EUR 25.00):
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | Capital.com EU leveraged, 0.001 lot, EUR account | 644 | 0 | 0 | 263 | 0.52x | 3419.95 | 270.05 | 85.05 | 387.72 |
 | Capital.com EU leveraged, 0.001 lot, USD sub-account | 644 | 0 | 0 | 263 | 0.53x | 3557.86 | 187.13 | 0.00 | 393.82 |
-| Capital.com EU 1:1, 0.001 lot, no funding | 644 | 0 | 0 | 263 | 0.43x | 3172.77 | 149.73 | 0.00 | 0.00 |
+| Capital.com EU 1:1, 0.001 lot, EUR account, no funding | 644 | 0 | 0 | 263 | 0.52x | 3876.05 | 271.59 | 83.93 | 0.00 |
 | Pepperstone EU cTrader Razor, 0.10 lot | 457 | 359 | 0 | 186 | 0.44x | 1348.82 | 89.11 | 0.00 | 99.63 |
 | IBKR IBUST100, 1 unit | 0 | 1204 | 0 | 0 | 0.00x | 0.00 | 0.00 | 0.00 | 0.00 |
-| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.37x | 421.46 | 398.34 | 0.00 | 0.00 |
+| UCITS ETF, long only | 300 | 0 | 684 | 119 | 0.41x | 525.62 | 418.11 | 0.00 | 0.00 |
 
 Full tearsheets: `null_tearsheet.md`, `planted_tearsheet.md`.

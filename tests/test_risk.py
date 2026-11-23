@@ -339,7 +339,8 @@ def test_eu_broker_presets_match_the_supplied_schedules():
     one = broker_preset("capital_com_eu_unleveraged_1to1")
     assert (one.instrument.lot_step, one.instrument.min_lot, one.costs.spread_points) == (0.001, 0.001, 1.8)
     assert one.instrument.max_leverage == 1.0 and not one.instrument.pays_financing
-    assert one.costs.financing_markup == 0.0 and one.costs.fx_conversion_fee == 0.0
+    assert one.costs.financing_markup == 0.0 and one.costs.fx_conversion_fee == 0.007   # EUR account
+    assert one.instrument.margin_rate == 1.0
     assert one.instrument.allow_short                                               # still a CFD
 
     for gone in ("oanda_eu_v20", "capital_com_eu_rest", "micro_cfd"):
@@ -365,24 +366,41 @@ def test_lot_size_decides_which_broker_can_carry_the_burn_in_budget():
     assert fine.units == pytest.approx(0.076) and 12.3 < fine.planned_risk <= 12.5
 
 
-def test_vehicle_leverage_cap_and_one_to_one_margin():
-    from ndxswing.config import broker_preset
+def test_margin_usage_rule_depends_on_whether_the_vehicle_is_leveraged():
+    """Leveraged margin products: initial margin <= 50% of equity.  Fully
+    cash-backed vehicles (margin_rate >= 1): up to 95% of equity."""
+    from ndxswing.config import broker_preset, ucits_ndx_etf
 
+    P0 = StrategyParams()
+    assert (P0.margin_usage_cap, P0.cash_backed_usage_cap) == (0.50, 0.95)
     st = AccountState(equity=5000.0, fx_quote_to_acct=1.0)
     calm = proposal(d_stop=5.0, stop_price=24_995.0, sigma_1d=0.002)                  # exposure caps bind
     lev = broker_preset("capital_com_eu_leveraged")
     one = broker_preset("capital_com_eu_unleveraged_1to1")
+
+    # leveraged at 5% margin: the 50% rule would allow 10x, so the 1.5x leverage cap binds
     r_lev = engine(inst=lev.instrument).approve(calm, st)
     assert r_lev.binding == "max_leverage" and r_lev.leverage == pytest.approx(1.5, abs=0.01)
+    # a leveraged product with a very high margin requirement is still held to 50% of equity
+    from dataclasses import replace
+    heavy = replace(lev.instrument, margin_rate=0.99)
+    r_heavy = engine(inst=heavy).approve(calm, st)
+    assert r_heavy.binding == "margin" and r_heavy.leverage == pytest.approx(0.50 / 0.99, abs=0.01)
+
+    # 1:1, fully cash-backed: up to 0.95x, no longer clipped at 0.50x
     r_one = engine(inst=one.instrument).approve(calm, st)
-    assert r_one.leverage <= 0.5 + 1e-9 and r_one.binding == "margin"                 # full margin, 50% usage rule
-    # with the margin-usage rule out of the way the vehicle's own 1.0 cap is what binds
-    r_cap = engine(StrategyParams(margin_usage_cap=5.0), inst=one.instrument).approve(calm, st)
+    assert r_one.binding == "margin" and r_one.leverage == pytest.approx(0.95, abs=0.005)
+    assert 0.50 < r_one.leverage <= 0.95
+    # the vehicle's own 1.0 cap is what binds once the cash rule is out of the way
+    r_cap = engine(StrategyParams(cash_backed_usage_cap=5.0), inst=one.instrument).approve(calm, st)
     assert r_cap.binding == "max_leverage" and r_cap.leverage == pytest.approx(1.0, abs=0.01)
-    # the drawdown tier can only tighten it further
-    tier = engine(StrategyParams(margin_usage_cap=5.0), inst=one.instrument).approve(
-        calm, AccountState(5000.0, 1.0, leverage_cap=0.6))
+    # ... and the drawdown tier can only tighten it further
+    tier = engine(inst=one.instrument).approve(calm, AccountState(5000.0, 1.0, leverage_cap=0.6))
     assert tier.leverage <= 0.6 + 1e-9
+    # the cash ETF is cash-backed as well and follows the same rule
+    etf = replace(ucits_ndx_etf(price_ratio=0.002), quote_ccy="USD")
+    r_etf = engine(inst=etf).approve(calm, st)
+    assert 0.50 < r_etf.leverage <= 0.95
 
 
 def test_rolling_five_day_loss_halves_risk():

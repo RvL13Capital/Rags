@@ -200,6 +200,11 @@ def ucits_etf_costs() -> CostModel:
 #
 # The CFD presets carry the EU schedules supplied for this project (see the
 # README for what could be cross-checked against public pages).
+#
+# Execution note for Capital.com: POST /api/v1/workingorders accepts LIMIT or
+# STOP, not a native stop-limit, and guaranteed and trailing stops cannot be
+# combined.  The simulator fills entries as stop-limits, so the execution
+# adapter has to emulate the limit leg (README, "Broker execution notes").
 
 
 def pepperstone_eu_ctrader(lot_step: float = 0.10, lot_reference_price: float | None = None) -> InstrumentSpec:
@@ -215,8 +220,8 @@ def capital_com_eu(lot_step: float = 0.001, lot_reference_price: float | None = 
 
     ``unleveraged=True`` models a 1:1 position: full notional posted as
     margin, gross exposure capped at 1.0 x equity and no overnight funding.
-    Note that the 50% margin-usage rule of the sizing spec then limits
-    exposure to 0.5 x equity, which is tighter than the 1.0 cap."""
+    Being fully cash-backed it is sized under the 95% cash-usage rule, not
+    the 50% margin-usage rule that applies to leveraged margin products."""
     base = ndx_fractional_cfd(lot_step, lot_reference_price)
     if unleveraged:
         return replace(base, name=f"Capital.com-EU-US100-1to1-{lot_step:g}", margin_rate=1.0, max_leverage=1.0,
@@ -250,10 +255,10 @@ def broker_preset(name: str, lot_step: float | None = None, lot_reference_price:
     if name == "capital_com_eu_unleveraged_1to1":
         return BrokerPreset(
             capital_com_eu(0.001 if lot_step is None else lot_step, lot_reference_price, unleveraged=True),
-            replace(capital_com_costs(fx_conversion_fee=0.0), financing_markup=0.0),
-            "1:1 position in a USD sub-account: 1.8 pt spread, no commission, minimum 0.001, no overnight funding, "
-            "no conversion mark-up, gross exposure capped at 1.0 x equity (0.5 x after the 50% margin-usage rule). "
-            "The simulation still books equity in EUR; the EURUSD move on a USD cash balance is not modelled.")
+            replace(capital_com_costs(), financing_markup=0.0),
+            "1:1 position in a EUR account: 1.8 pt spread, no commission, minimum 0.001, no overnight funding, 0.7% "
+            "conversion mark-up on realised P&L, gross exposure up to 0.95 x equity (fully cash-backed, so the 50% "
+            "margin-usage rule for leveraged products does not apply).")
     if name == "ibkr_cfd":
         return BrokerPreset(ibkr_ibust100(lot_reference_price), ibkr_cfd_costs(),
                             "IBKR schedule (0.010%, USD 1.00 minimum, benchmark +/- 1.5%, whole units) checked "
@@ -325,7 +330,8 @@ class StrategyParams:
     max_leverage: float = 1.50
     gap_buffer: float = 1.25
     es_cap_mult: float = 2.5
-    margin_usage_cap: float = 0.50
+    margin_usage_cap: float = 0.50        # leveraged margin products (ESMA 50% margin close-out)
+    cash_backed_usage_cap: float = 0.95   # fully cash-backed vehicles (margin_rate >= 1.0): 1:1 CFD, cash ETF
     kelly_fraction: float = 0.20
     kelly_min_trades: int = 30
     kelly_window: int = 250

@@ -357,17 +357,20 @@ def test_conversion_markup_on_realised_pnl_and_funding():
         0.0105 * (5.0 + 5.0 * 100.0 * (0.04 + 0.06) / 360.0))
 
 
-def test_one_to_one_cfd_pays_no_overnight_funding():
+def test_one_to_one_cfd_pays_no_funding_but_converts_pnl_at_a_markup():
     from ndxswing.config import broker_preset
     from dataclasses import replace
 
     one = broker_preset("capital_com_eu_unleveraged_1to1")
     inst = replace(one.instrument, quote_ccy="EUR")                           # scripted bars need no FX series
+    costs = replace(one.costs, spread_points=None, spread_bps=0.0, slippage_bps=0.0)
     bars = flat_market()
-    set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)
-    t = one_trade(run(bars, {S: LONG}, params=P.with_(max_hold_days=3), costs=one.costs, instrument=inst))
-    assert t["financing"] == 0.0 and t["fx_fee"] == 0.0 and t["sessions_held"] == 3
-    assert t["leverage"] <= 0.5 + 1e-9
+    set_bar(bars, S + 1, 100.5, 101.5, 100.4, 101.2)                          # long 5 units at 101, out at 100
+    t = one_trade(run(bars, {S: LONG}, params=P.with_(max_hold_days=3), costs=costs, instrument=inst))
+    assert t["financing"] == 0.0 and t["sessions_held"] == 3                  # two nights held, nothing charged
+    assert t["fx_fee"] == pytest.approx(0.007 * 5.0)                          # 0.7% of the EUR 5 realised loss
+    assert t["net_pnl"] == pytest.approx(-5.0 - 0.035)
+    assert t["leverage"] <= 0.95 + 1e-9
 
 
 def test_unhedged_eur_etf_carries_fx_on_the_notional():

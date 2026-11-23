@@ -124,10 +124,15 @@ class PortfolioRiskEngine:
         d_eff = p.gap_buffer * proposal.d_stop * inst.price_ratio
         risk_unit = d_eff * inst.multiplier * X + var_cost_unit
 
+        # Leveraged margin products may commit at most 50% of equity as initial
+        # margin (they face the ESMA 50% margin close-out).  A fully cash-backed
+        # vehicle (margin_rate >= 1) cannot be closed out on margin and may use
+        # up to 95% of equity.
+        usage_cap = p.margin_usage_cap if inst.margin_rate < 1.0 else p.cash_backed_usage_cap
         cands = {
             "risk_budget": (r_eff - fixed_cost) / risk_unit,
             e_name: e_allowed / unit_notional,
-            "margin": p.margin_usage_cap * V / (unit_notional * inst.margin_rate),
+            "margin": usage_cap * V / (unit_notional * inst.margin_rate),
         }
         binding = min(cands, key=cands.get)
         lot_scale = inst.lot_reference_price / px if inst.lot_reference_price else 1.0

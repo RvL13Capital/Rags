@@ -79,7 +79,7 @@ def vehicle_comparison(m: dict, fs: FeatureSet, b_risk: float = 0.0025) -> pd.Da
     vehicles = [
         pre("capital_com_eu_leveraged", "Capital.com EU leveraged, 0.001 lot, EUR account"),
         pre("capital_com_eu_leveraged", "Capital.com EU leveraged, 0.001 lot, USD sub-account", fx_conversion_fee=0.0),
-        pre("capital_com_eu_unleveraged_1to1", "Capital.com EU 1:1, 0.001 lot, no funding"),
+        pre("capital_com_eu_unleveraged_1to1", "Capital.com EU 1:1, 0.001 lot, EUR account, no funding"),
         pre("pepperstone_eu_ctrader", "Pepperstone EU cTrader Razor, 0.10 lot"),
         pre("ibkr_cfd", "IBKR IBUST100, 1 unit"),
         pre("ucits_etf", "UCITS ETF, long only"),
