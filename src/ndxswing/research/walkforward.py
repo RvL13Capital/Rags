@@ -1,6 +1,6 @@
 """Purged rolling walk-forward with neighbourhood-penalised Optuna search (8.2).
 
-Cycle: 36 months train -> 12 months validation -> 6 months untouched OOS,
+Cycle: 36 months train -> 12 months validation -> 6 months OOS (never used to choose parameters),
 shifted by 3 months (a 6-month validation window holds only a handful of
 trades, which makes parameter selection a fit to small-sample luck), with ``purge_days + embargo_days`` sessions removed
 between consecutive windows so that a 5-day holding period cannot straddle a
@@ -43,7 +43,7 @@ from ..analytics.stats import (
 from ..analytics.tearsheet import TearsheetReporter
 from ..analytics.montecarlo import MonteCarloConfig
 from ..backtest.engine import BacktestResult, EventDrivenBacktester
-from ..config import BacktestConfig, ModuleFlags, StrategyParams
+from ..config import B_RISK_CEILING, BacktestConfig, ModuleFlags, StrategyParams
 from ..features.pipeline import FeatureSet
 from ..signal.engine import SignalEngine
 
@@ -388,9 +388,19 @@ class PurgedWalkForwardRunner:
         return [bt.run(apply_overrides(self.base, th), self.flags, start=lo, end=hi)
                 for th in random_configs(self.space, n_configs, seed)]
 
+    def replay_at_risk(self, wf: WalkForwardResult, b_risk: float = B_RISK_CEILING) -> BacktestResult:
+        """The stitched OOS schedule replayed at another risk budget per trade.
+        Signals, features and the per-fold parameters are the saved ones
+        (nothing is re-estimated or re-tuned); only the sizing changes."""
+        sched = [(f.oos_start, p.with_(b_risk=b_risk)) for f, p in zip(wf.folds, wf.fold_params)]
+        return self.ctx.backtester().run(schedule=sched, flags=wf.flags, start=wf.folds[0].oos_start,
+                                         end=wf.folds[-1].oos_end)
+
     def tearsheet(self, wf: WalkForwardResult, n_configs: int = 64, extra_trials: list[BacktestResult] | None = None,
                   n_tuned: int | None = None, mc_config: MonteCarloConfig = MonteCarloConfig(),
-                  meta: dict | None = None, title: str = "NASDAQ-100 swing system") -> TearsheetReporter:
+                  meta: dict | None = None, title: str = "NASDAQ-100 swing system",
+                  holdout_start: str | pd.Timestamp | None = None, prior_eff_trials: float = 0.0,
+                  ceiling_risk: float = B_RISK_CEILING) -> TearsheetReporter:
         """``extra_trials`` are OOS results of other configurations that were
         looked at before settling on this one (the ablation variants).  They
         join the random parameter draws as the K configurations compared:
@@ -400,7 +410,13 @@ class PurgedWalkForwardRunner:
         SR_0 = 0 and the CSCV statistics are not applicable.
 
         ``n_tuned`` is the number of parameters the optimiser moves for the
-        configuration being reported (defaults to this runner's search space)."""
+        configuration being reported (defaults to this runner's search space).
+
+        ``holdout_start`` adds a Holdout column: the tail of the stitched OOS
+        series that no retention decision saw.  ``prior_eff_trials`` carries
+        effective trials from earlier research into the DSR benchmark.  The
+        two survival gates are also evaluated on a replay of the stitched OOS
+        at ``ceiling_risk``."""
         draws = self.config_trials(wf, n_configs)
         trials = draws + list(extra_trials or [])
         pbo, trial_sr, rho_bar = None, None, 0.0
@@ -442,9 +458,18 @@ class PurgedWalkForwardRunner:
             "entry order": self.ctx.config.entry_order_type,
             "initial equity": f"{self.ctx.config.initial_equity:,.0f} {self.ctx.config.account_ccy}",
         } | (meta or {})
+        segments = {"in_sample": wf.in_sample, "validation": wf.validation, "oos": wf.oos}
+        hs = None if holdout_start is None else pd.Timestamp(holdout_start)
+        if hs is not None and len(wf.oos.equity) and wf.oos.equity.index[-1] >= hs:
+            segments["holdout"] = wf.oos.slice(hs, None)
+        base_risk = wf.fold_params[0].b_risk
+        info["risk per trade"] = f"{100 * base_risk:.2f}% (survival gates also at {100 * ceiling_risk:.2f}%)"
+        if prior_eff_trials:
+            info["prior effective trials"] = f"{prior_eff_trials:g}"
         return TearsheetReporter(
-            {"in_sample": wf.in_sample, "validation": wf.validation, "oos": wf.oos},
-            oos_stress=wf.oos_stress, trial_sharpes=trial_sr, n_trials=len(trials) if len(trials) >= 2 else 1,
+            segments, oos_stress=wf.oos_stress, trial_sharpes=trial_sr, n_trials=len(trials) if len(trials) >= 2 else 1,
             n_tuned=n_tuned, rho_bar=rho_bar, pbo=pbo, fold_table=wf.fold_table, mc_config=mc_config, meta=info,
-            title=title,
+            title=title, oos_ceiling=self.replay_at_risk(wf, ceiling_risk), ceiling_risk=ceiling_risk,
+            prior_eff_trials=prior_eff_trials, selection_on_oos=bool(extra_trials),
+            holdout_start=None if hs is None else str(hs.date()),
         )

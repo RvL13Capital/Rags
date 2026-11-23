@@ -217,6 +217,8 @@ def _ts(source: str, sharpe_boost: float = 0.0, **kw) -> TearsheetReporter:
     kw.setdefault("n_tuned", 2)
     kw.setdefault("pbo", {"pbo": 0.2, "n_combinations": 12870, "n_configs": 64, "is_oos_slope": 0.1,
                           "prob_oos_loss": 0.05, "is_sharpe_iqr": 0.6})
+    kw.setdefault("oos_ceiling", mk(0.0 + sharpe_boost))
+    kw.setdefault("ceiling_risk", 0.0075)
     return TearsheetReporter(seg, oos_stress=mk(0.0001 + sharpe_boost), trial_sharpes=rng.normal(0, 0.03, 64),
                              n_trials=64, rho_bar=0.2,
                              fold_table=folds, mc_config=mc.MonteCarloConfig(n_paths=500), **kw)
@@ -230,11 +232,12 @@ def test_tearsheet_segments_are_separate_and_paper_live_are_empty(tmp_path):
     assert rep["segments"]["in_sample"]["sharpe"] != rep["segments"]["oos"]["sharpe"]
     md = ts.to_markdown(rep)
     header = [l for l in md.splitlines() if l.startswith("| Metric")][0]
-    assert header == "| Metric | In-Sample | Validation | Out-of-Sample | Paper | Live |"
+    assert header == "| Metric | In-Sample | Validation | Out-of-Sample | Holdout | Paper | Live |"
+    assert rep["segments"]["holdout"] is None
     for n in range(1, 16):
         assert any(l.startswith(f"| {n}") for l in md.splitlines()), f"metric {n} missing"
     row = [l for l in md.splitlines() if l.startswith("| 3. Sharpe")][0].split("|")
-    assert row[-3].strip() == "n/a" and row[-2].strip() == "n/a"
+    assert [c.strip() for c in row[-4:-1]] == ["n/a", "n/a", "n/a"]          # holdout, paper, live
     paths = ts.save(tmp_path)
     saved = json.loads(paths["json"].read_text())
     assert saved["segments"]["oos"]["monte_carlo"]["block"]["n_paths"] == 500
@@ -250,11 +253,14 @@ def test_gates_and_verdicts():
         "OOS net Sharpe", "Deflated Sharpe Ratio (zero-mean null, N_eff)", "CSCV P(OOS loss of IS-best)",
         "CSCV rank PBO", "OOS net profit factor", "OOS net P&L under 1.5x costs",
         "OOS maximum drawdown (true high-water mark)", "Monte Carlo P(DD >= 20%)",
-        "Profitable walk-forward OOS folds", "Independent OOS trades",
+        "OOS maximum drawdown at the 0.75% risk ceiling", "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling",
+        "Independent OOS trades",
     ]
+    assert not any("folds" in g.lower() for g in gates)                       # informational since the audit
     assert gates["OOS net Sharpe"]["status"] == "FAIL"
     assert gates["CSCV P(OOS loss of IS-best)"]["status"] == "PASS" and gates["CSCV rank PBO"]["status"] == "PASS"
-    assert gates["Profitable walk-forward OOS folds"]["value"] == 0.75
+    assert weak["folds"]["profitable_share"] == 0.75 and weak["folds"]["zero_trade_folds"] == 0
+    assert weak["stability"]["n_slices"] >= 1 and "Stability over time (informational, not a gate)" in _ts("x").to_markdown()
     assert weak["verdict"].startswith("NOT READY FOR LIVE DEPLOYMENT")
     strong = _ts("IBKR TRADES", sharpe_boost=0.0014).build()
     assert all(g["status"] == "PASS" for g in strong["gates"]), strong["gates"]
@@ -266,19 +272,22 @@ def test_recalibrated_thresholds_sit_exactly_where_specified():
     T = TearsheetReporter
     assert (T.MIN_SHARPE, T.MIN_PF, T.MAX_DD) == (0.80, 1.20, 0.10)             # locked
     assert (T.MIN_DSR, T.MAX_OOS_LOSS, T.MAX_RANK_PBO, T.RANK_PBO_MIN_IQR) == (0.95, 0.15, 0.25, 0.25)
-    assert (T.MIN_FOLDS, T.MIN_TRADES) == (0.65, 150)
+    assert (T.MAX_MC_DD20, T.MIN_TRADES) == (0.02, 100) and not hasattr(T, "MIN_FOLDS")
     ts = _ts("IBKR TRADES", sharpe_boost=0.0014)
     rep = ts.build()
-    # 14 of 21 folds is 66.7% and passes; 13 of 21 is 61.9% and does not
-    for wins, ok in ((14, "PASS"), (13, "FAIL")):
-        folds = {"n_folds": 21, "profitable_share": wins / 21, "table": []}
-        g = {x["gate"]: x["status"] for x in ts._gates(rep["segments"]["oos"], rep["dsr"], rep["oos_cost_stress"], folds)}
-        assert g["Profitable walk-forward OOS folds"] == ok
     oos = dict(rep["segments"]["oos"])
-    for n, ok in ((150, "PASS"), (149, "FAIL")):
+    for n, ok in ((100, "PASS"), (99, "FAIL")):
         oos["n_trades"] = n
-        g = {x["gate"]: x["status"] for x in ts._gates(oos, rep["dsr"], rep["oos_cost_stress"], rep["folds"])}
+        g = {x["gate"]: x["status"] for x in ts._gates(oos, rep["dsr"], rep["oos_cost_stress"], rep["risk_ceiling"])}
         assert g["Independent OOS trades"] == ok
+    # the survival gates are applied a second time, at the risk ceiling
+    for dd, p20, ok_dd, ok_mc in ((0.0999, 0.0199, "PASS", "PASS"), (0.10, 0.02, "FAIL", "FAIL")):
+        ceil = dict(rep["risk_ceiling"], max_drawdown=dd, mc_p_dd_20=p20)
+        g = {x["gate"]: x["status"] for x in ts._gates(rep["segments"]["oos"], rep["dsr"], rep["oos_cost_stress"], ceil)}
+        assert g["OOS maximum drawdown at the 0.75% risk ceiling"] == ok_dd
+        assert g["Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"] == ok_mc
+    g = {x["gate"]: x["status"] for x in ts._gates(rep["segments"]["oos"], rep["dsr"], rep["oos_cost_stress"], None)}
+    assert g["OOS maximum drawdown at the 0.75% risk ceiling"] == "NOT EVALUATED"   # no replay, no release
 
 
 def test_cscv_gates_depend_on_selection_and_on_variant_dispersion():
@@ -365,3 +374,78 @@ def test_missing_inputs_leave_gates_unevaluated():
     assert gates["Deflated Sharpe Ratio (zero-mean null, N_eff)"] == "NOT EVALUATED"
     assert gates["CSCV P(OOS loss of IS-best)"] == "NOT EVALUATED"
     assert ts.build()["verdict"].startswith("NOT READY")
+
+
+# ------------------------------------------------- audit revisions (v8)
+
+
+def test_prior_effective_trials_raise_the_benchmark_with_sampling_variance():
+    rng = np.random.default_rng(21)
+    r = rng.normal(0.0006, 0.005, 1500)
+    T = len(r)
+    # one fixed configuration, nothing carried: SR_0 = 0 exactly as before
+    base = st.deflated_sharpe_ratio(r, None, 1, 1.0)
+    assert base["sr0_per_period"] == 0.0 and base["n_eff"] == 1.0 and base["dsr"] == pytest.approx(base["psr_zero"])
+    # one fixed configuration, prior trials carried: V = 1/T, N = 1 + prior, so SR_0 > 0
+    d = st.deflated_sharpe_ratio(r, None, 1, 1.0, prior_eff_trials=6.0)
+    assert d["n_eff"] == 7.0 and d["n_eff_current"] == 1.0 and d["sr_variance_total"] == pytest.approx(1.0 / T)
+    assert d["sr0_per_period"] == pytest.approx(np.sqrt(1.0 / T) * st._expected_max_z(7.0)) and d["sr0_per_period"] > 0
+    assert d["dsr"] < base["dsr"]
+    # several current trials: prior = 0 reproduces the earlier formula exactly ...
+    s = rng.normal(0.0, 0.01, 12)
+    old_sr0 = st.expected_max_sharpe_zero_null(s, st.effective_trials(12, 0.6))
+    v7 = st.deflated_sharpe_ratio(r, s, 12, 0.6)
+    assert v7["sr0_per_period"] == old_sr0 and v7["n_eff"] == st.effective_trials(12, 0.6)
+    assert v7["dsr"] == st.probabilistic_sharpe_ratio(r, old_sr0)
+    # ... and prior > 0 blends the cross-trial variance with 1/T, weighted by effective trials
+    n_cur, prior = st.effective_trials(12, 0.6), 9.5
+    d = st.deflated_sharpe_ratio(r, s, 12, 0.6, prior_eff_trials=prior)
+    v = (n_cur * s.var(ddof=1) + prior / T) / (n_cur + prior)
+    assert d["n_eff"] == pytest.approx(n_cur + prior) and d["sr_variance_total"] == pytest.approx(v)
+    assert d["sr0_per_period"] == pytest.approx(np.sqrt(v) * st._expected_max_z(n_cur + prior))
+    with pytest.raises(ValueError):
+        st.deflated_sharpe_ratio(r, s, 12, 0.6, prior_eff_trials=-1.0)
+    # the tearsheet carries it through, also when nothing was selected in the run itself
+    ts = TearsheetReporter({"oos": result_from_returns(r)}, n_trials=1, mc_config=mc.MonteCarloConfig(n_paths=200),
+                           prior_eff_trials=6.0)
+    rep = ts.build()
+    assert rep["dsr"]["sr0_per_period"] > 0 and rep["dsr"]["no_selection"] and "carried from" in ts.to_markdown(rep)
+
+
+def test_slice_stability_uses_non_overlapping_slices_and_separates_inactive_ones():
+    idx = pd.bdate_range("2020-01-01", "2021-12-31")
+    eq = pd.Series(5000.0, index=idx)
+    eq[idx >= "2020-03-02"] += 50.0          # slice 0 (Jan-Jun 2020): +50
+    eq[idx >= "2021-02-01"] -= 20.0          # slice 2 (Jan-Jun 2021): -20;  slices 1 and 3: nothing happens
+    trades = make_trades([50.0, -20.0])
+    trades["entry_session"] = [pd.Timestamp("2020-02-28"), pd.Timestamp("2021-01-29")]
+    out = st.slice_stability(BacktestResult(eq, trades, 5000.0, {}), 6)
+    assert out["n_slices"] == 4 and [round(x["net_pnl"], 6) for x in out["table"]] == [50.0, 0.0, -20.0, 0.0]
+    assert (out["profitable"], out["losing"], out["inactive"], out["active"]) == (1, 1, 2, 2)
+    assert out["share_profitable"] == 0.25 and out["share_profitable_active"] == 0.5
+    assert [x["trades"] for x in out["table"]] == [1, 0, 1, 0]
+    # every session belongs to exactly one slice
+    assert sum(x["sessions"] for x in out["table"]) == len(idx)
+    # a short final slice is listed but not counted
+    short = st.slice_stability(BacktestResult(eq[idx <= "2021-08-13"], trades, 5000.0, {}), 6)
+    assert short["n_slices"] == 3 and len(short["table"]) == 4 and not short["table"][-1]["complete"]
+
+
+def test_holdout_column_and_selection_wording():
+    rng = np.random.default_rng(31)
+    mk = lambda: result_from_returns(rng.normal(0.0005, 0.004, 500), make_trades(list(rng.normal(3, 20, 120))))
+    plain = TearsheetReporter({"oos": mk()}, n_trials=1, mc_config=mc.MonteCarloConfig(n_paths=200))
+    md = plain.to_markdown()
+    assert "untouched by selection" not in md and "untouched OOS" not in md
+    assert "was not used to choose anything in this run" in md
+    ts = TearsheetReporter({"oos": mk(), "holdout": mk()}, n_trials=1, mc_config=mc.MonteCarloConfig(n_paths=200),
+                           selection_on_oos=True, holdout_start="2024-01-01")
+    rep = ts.build()
+    md = ts.to_markdown(rep)
+    assert rep["segments"]["holdout"]["n_trades"] == 120 and rep["holdout_start"] == "2024-01-01"
+    assert "not selection-free" in md and "Holdout is the part of the same series from 2024-01-01" in md
+    row = [l for l in md.splitlines() if l.startswith("| 11. Independent trades")][0].split("|")
+    assert row[4].strip() == row[5].strip() == "120" and row[6].strip() == "n/a"   # OOS, holdout filled; paper empty
+    assert "6b. Max drawdown / annualised volatility" in md
+    m = rep["segments"]["oos"]
+    assert m["dd_over_vol"] == pytest.approx(m["max_drawdown"] / m["ann_vol"])

@@ -19,6 +19,17 @@ Fill conventions (bar prices are treated as mid quotes):
   fills additionally pay slippage; limit fills (entry limit, take-profit) do not;
 * entries are stop-limits by default; ``entry_order_type="stop"`` models a
   plain stop that fills at the market once triggered (no limit leg);
+* a stop-limit whose trigger is elected without a fill (the bar opened beyond
+  the limit and never came back) rests as a plain limit for the remaining
+  bars of its validity window within the same session: it fills at the open
+  if the next bar opens at or inside the limit, otherwise on a pullback to the
+  limit.  The triggered state is dropped at the session break, where a working
+  entry order is pulled and re-armed at the next open (never left resting
+  overnight);
+* on a pullback fill the bar's favourable extreme may predate the fill, so
+  only the close counts as favourable excursion on that bar (no take-profit
+  or trail activation from a high that came first); the stop check still
+  uses the whole bar;
 * a stop is triggered by the mid touching it; if the bar opens beyond the
   stop the fill is the open (worse than the stop);
 * the intrabar path is unknown, so when a bar touches both the stop and a
@@ -57,6 +68,9 @@ class _Pending:
     params: StrategyParams
     flags: ModuleFlags
     segment: int
+    #: stop-limit only: the trigger was elected on an earlier bar of THIS session without a fill,
+    #: so the order now rests as a plain limit (reset at the next session open)
+    triggered: bool = False
 
 
 @dataclass
@@ -233,7 +247,9 @@ class EventDrivenBacktester:
                  "turnover": 0.0,
                  # entry-order diagnostics: bars on which a working order opened beyond its limit but
                  # inside the anti-chase bound, and (plain stop only) fills paid through the limit
-                 "opens_beyond_limit": 0, "entries_beyond_limit": 0, "entry_excess_atr": 0.0}
+                 "opens_beyond_limit": 0, "entries_beyond_limit": 0, "entry_excess_atr": 0.0,
+                 # stop-limit: fills taken as a resting limit on a later bar of the trigger session
+                 "resting_limit_fills": 0, "cancel_stop_breached": 0}
         peak_bar, max_dd_bar = init_eq, 0.0
         prev_seg = seg_l[i0] if i1 > i0 else 0
 
@@ -330,14 +346,15 @@ class EventDrivenBacktester:
                 stats["fx_fee"] += ps.fx_fee
                 stats["turnover"] += ps.turnover
 
-        def open_position(i: int, pd_: _Pending, ref_px: float, at_limit: bool) -> None:
+        def open_position(i: int, pd_: _Pending, ref_px: float, at_limit: bool, slip: bool = True) -> None:
             """Entry fill.  ``ref_px`` is the mid at the fill; a fill at the
-            limit price pays the limit exactly."""
+            limit price pays the limit exactly; ``slip=False`` is a resting
+            limit filled at a better quote (spread, no slippage)."""
             nonlocal cash, pos
             od, pr, pp = pd_.order, pd_.order.proposal, pd_.params
             d = pr.direction
             lim = pr.entry_limit * self._ratio
-            hs_px, sl_px = ref_px * HS[i], ref_px * slip_f
+            hs_px, sl_px = ref_px * HS[i], (ref_px * slip_f if slip else 0.0)
             if at_limit:
                 px, hs_px, sl_px = lim, 0.0, 0.0
             else:
@@ -404,6 +421,8 @@ class EventDrivenBacktester:
                 if seg_l[i] != prev_seg:
                     prev_seg = seg_l[i]
                     breakers.on_refit(cash if pos is None or pos.shadow else equity_now(i - 1), e.ts[i])
+                if pending is not None:
+                    pending.triggered = False   # a working entry order is re-armed at the open, never resting overnight
                 if pos is not None:  # overnight financing on the previous close notional
                     if inst.pays_financing:
                         notional = pos.units * mult * c[i - 1] * X[i]
@@ -454,15 +473,30 @@ class EventDrivenBacktester:
                 Lm = pr.entry_limit * self._ratio
                 a_sig = pr.atr * self._ratio
                 oi, hi_, li, ci = o[i], h[i], l[i], c[i]
-                filled = at_open = False
+                filled = at_open = pullback = False
                 if not breakers.can_enter and not pending.order.shadow:
                     stats["cancel_halt"] += 1
                     pending = None
                 elif (oi - (P + d * pp.anti_chase_atr * a_sig)) * d > 0:
                     stats["cancel_anti_chase"] += 1
                     pending = None
+                elif pending.triggered and (oi - pr.stop_price * self._ratio) * d <= 0:
+                    stats["cancel_stop_breached"] += 1           # resting limit, market already through the protective stop
+                    pending = None
                 else:
-                    if (oi - P) * d >= 0:                        # trigger elected at the open
+                    back = (li + li * HS[i]) if d > 0 else (hi_ - hi_ * HS[i])   # ask low (long) / bid high (short)
+                    if pending.triggered:                        # triggered earlier this session: a resting limit
+                        if (Lm - (oi + d * oi * HS[i])) * d >= 0:
+                            open_position(i, pending, oi, False, slip=False)     # opens at or inside the limit
+                            filled = at_open = True
+                            stats["resting_limit_fills"] += 1
+                        else:
+                            stats["opens_beyond_limit"] += 1
+                            if (Lm - back) * d >= 0:
+                                open_position(i, pending, Lm, True)
+                                filled = pullback = True
+                                stats["resting_limit_fills"] += 1
+                    elif (oi - P) * d >= 0:                      # trigger elected at the open
                         quote = oi + d * oi * (HS[i] + slip_f)
                         if (Lm - quote) * d >= 0:
                             open_position(i, pending, oi, False)
@@ -472,11 +506,11 @@ class EventDrivenBacktester:
                             if plain_stop:                       # plain stop: filled at the market open
                                 open_position(i, pending, oi, False)
                                 filled = at_open = True
-                            else:                                # stop-limit: rests, needs a pullback to the limit
-                                back = (li + li * HS[i]) if d > 0 else (hi_ - hi_ * HS[i])
-                                if (Lm - back) * d >= 0:
-                                    open_position(i, pending, Lm, True)
-                                    filled = True
+                            elif (Lm - back) * d >= 0:           # stop-limit: pullback to the limit within the bar
+                                open_position(i, pending, Lm, True)
+                                filled = pullback = True
+                            else:                                # triggered, unfilled: rests as a limit this session
+                                pending.triggered = True
                     elif ((hi_ if d > 0 else li) - P) * d >= 0:  # triggered intrabar
                         open_position(i, pending, P, False)
                         filled = True
@@ -485,6 +519,10 @@ class EventDrivenBacktester:
                         ps = pos
                         adv = li if d > 0 else hi_
                         fav = hi_ if d > 0 else li
+                        if pullback:
+                            # the bar opened beyond the limit and came back to it: its extreme may predate
+                            # the fill, so only the close is known to follow it
+                            fav = max(ps.entry_px, ci) if d > 0 else min(ps.entry_px, ci)
                         touched = (ps.stop - adv) * d >= 0
                         closed_through = (ps.stop - ci) * d >= 0
                         if (touched and (at_open or cfg.entry_bar_stop_policy == "conservative")) or closed_through:

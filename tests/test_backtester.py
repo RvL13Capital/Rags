@@ -101,6 +101,101 @@ def test_open_above_limit_without_pullback_does_not_fill():
     assert res.stats["expired"] == 1
 
 
+def test_triggered_stop_limit_rests_as_a_limit_on_the_next_intraday_bar():
+    """The trigger is elected at an open beyond the limit and the bar never
+    comes back.  The order is now a resting limit at 101.3: when the next bar
+    of the same session opens lower it is filled at that open, below the
+    trigger, without the trigger having to be touched again."""
+    bars = flat_market()
+    set_bar(bars, S + 1, 101.6, 101.9, 101.5, 101.8)   # triggered at the open, no pullback to 101.3
+    set_bar(bars, S + 2, 100.8, 100.9, 100.2, 100.6)   # opens below the trigger: the limit is marketable
+    res = run(bars, {S: LONG})
+    t = one_trade(res)
+    assert t["entry_px"] == pytest.approx(100.8) and t["r_px"] == pytest.approx(1.8)
+    assert res.stats["resting_limit_fills"] == 1 and res.stats["expired"] == 0
+    assert bars.index[S + 2] == t["entry_ts"]
+    # a limit fill pays the spread but no slippage
+    costs = CostModel(spread_bps=10.0, slippage_bps=5.0, commission_bps=0.0, financing_markup=0.0,
+                      default_benchmark_rate=0.0)
+    t = one_trade(run(bars, {S: LONG}, costs=costs))
+    assert t["entry_px"] == pytest.approx(100.8 * (1 + 5e-4))
+    # still above the limit on the second bar, then back to it: filled at the limit, not at the open
+    bars2 = flat_market()
+    set_bar(bars2, S + 1, 101.6, 101.9, 101.5, 101.8)
+    set_bar(bars2, S + 2, 101.7, 101.8, 101.2, 101.4)
+    res2 = run(bars2, {S: LONG})
+    assert one_trade(res2)["entry_px"] == pytest.approx(101.3) and res2.stats["resting_limit_fills"] == 1
+    # a plain stop never rests: it was filled at the first open
+    assert one_trade(run(bars, {S: LONG}, entry_order_type="stop"))["entry_px"] == pytest.approx(101.6)
+
+
+def test_triggered_state_is_dropped_at_the_session_break():
+    """Same order, but its second bar is the next session's open.  A working
+    entry order is never left resting overnight, so the gap-down open does not
+    fill a stale limit; the order has to be triggered again."""
+    last = S + 6                                        # final bar of the signal's session
+    assert bars_per_day_position(last) == 6
+    bars = flat_market()
+    set_bar(bars, last, 101.6, 101.9, 101.5, 101.8)     # triggered at the open, no pullback
+    set_bar(bars, last + 1, 100.8, 100.9, 100.2, 100.6) # next morning: gaps down, never reaches the trigger
+    res = run(bars, {last - 1: LONG})
+    assert len(res.trades) == 0 and res.stats["expired"] == 1 and res.stats["resting_limit_fills"] == 0
+    # ... and when the new session does trade up through the trigger, the fill is the trigger, not the open
+    bars2 = flat_market()
+    set_bar(bars2, last, 101.6, 101.9, 101.5, 101.8)
+    set_bar(bars2, last + 1, 100.8, 101.5, 100.7, 101.2)
+    res2 = run(bars2, {last - 1: LONG})
+    assert one_trade(res2)["entry_px"] == pytest.approx(101.0) and res2.stats["resting_limit_fills"] == 0
+
+
+def bars_per_day_position(i: int) -> int:
+    from tests.conftest import BARS_PER_DAY
+    return i % BARS_PER_DAY
+
+
+def test_pullback_fill_ignores_a_spike_that_may_predate_it():
+    """Spike-then-pullback bar: opens beyond the limit, prints 107 (beyond the
+    +1.5R target at 104.75 and the +2R trail activation at 105.9), comes back
+    to the 101.3 limit and closes at 101.5.  The fill happened on the way
+    down, so the spike cannot have paid the target or armed the trail."""
+    bars = flat_market()
+    set_bar(bars, S + 1, 101.6, 107.0, 101.2, 101.5)
+    t = one_trade(run(bars, {S: LONG}, EXITS))
+    assert t["entry_px"] == pytest.approx(101.3) and t["r_px"] == pytest.approx(2.3)
+    assert not t["tp1_hit"] and t["exit_reason"] == "time_exit"
+    assert t["mfe_r"] == pytest.approx((101.5 - 101.3) / 2.3)                # only the close counts on that bar
+    assert t["net_pnl"] == pytest.approx(5.0 * (100.0 - 101.3))
+    # the protective stop is still checked against the whole bar
+    bars2 = flat_market()
+    set_bar(bars2, S + 1, 101.6, 107.0, 98.9, 101.5)
+    t2 = one_trade(run(bars2, {S: LONG}, EXITS))
+    assert t2["exit_reason"] == "stop" and t2["bars_held"] == 1 and t2["net_pnl"] == pytest.approx(5.0 * (99.0 - 101.3))
+    # a close beyond the target after the fill does pay it
+    bars3 = flat_market()
+    set_bar(bars3, S + 1, 101.6, 107.0, 101.2, 105.0)
+    assert one_trade(run(bars3, {S: LONG}, EXITS))["tp1_hit"]
+    # short mirror: limit 98.7, spike down to 93, back up to the limit, close 98.5
+    bars4 = flat_market()
+    set_bar(bars4, S + 1, 98.4, 98.8, 93.0, 98.5)
+    t4 = one_trade(run(bars4, {S: SHORT}, EXITS))
+    assert t4["entry_px"] == pytest.approx(98.7) and not t4["tp1_hit"]
+    assert t4["mfe_r"] == pytest.approx((98.7 - 98.5) / 2.3)
+
+
+def test_breakout_entry_bars_keep_their_full_post_fill_excursion():
+    """Fills at the open (inside the limit) or on an intrabar trigger precede
+    the rest of the bar, so the bar's high does count."""
+    bars = flat_market()
+    set_bar(bars, S + 1, 101.2, 104.6, 101.1, 104.2)   # fill at the open 101.2, 1R = 2.2, target 104.5
+    t = one_trade(run(bars, {S: LONG}, EXITS))
+    assert t["entry_px"] == pytest.approx(101.2) and t["tp1_hit"]
+    bars2 = flat_market()
+    set_bar(bars2, S + 1, 100.5, 104.2, 100.4, 104.1)  # trades up through 101: target 104
+    t2 = one_trade(run(bars2, {S: LONG}, EXITS))
+    assert t2["entry_px"] == pytest.approx(101.0) and t2["tp1_hit"]
+    assert t2["mfe_r"] == pytest.approx((104.2 - 101.0) / 2.0)
+
+
 def test_plain_stop_entry_fills_at_the_open_beyond_the_limit():
     """Open at 101.6: beyond the 101.3 limit, inside the 102.0 anti-chase bound.
     A stop-limit rests and never fills; a plain stop is filled at the open."""
@@ -151,7 +246,13 @@ def test_plain_stop_differs_only_where_the_limit_would_have_bound():
     # short side mirrors: open at 98.4 is beyond the 98.7 limit, inside the 98.0 bound
     bars = flat_market()
     set_bar(bars, S + 1, 98.4, 98.5, 98.1, 98.2)
+    set_bar(bars, S + 2, 98.2, 98.3, 98.1, 98.2)        # still beyond the limit while the order works
     assert len(run(bars, {S: SHORT}).trades) == 0
+    # ... but once triggered it rests as a limit: a second bar opening back above 98.7 fills it at that open
+    bars = flat_market()
+    set_bar(bars, S + 1, 98.4, 98.5, 98.1, 98.2)
+    set_bar(bars, S + 2, 99.2, 99.3, 99.0, 99.1)
+    assert one_trade(run(bars, {S: SHORT}))["entry_px"] == pytest.approx(99.2)
     bars = flat_market()
     set_bar(bars, S + 1, 98.4, 98.5, 98.1, 98.2)
     assert one_trade(run(bars, {S: SHORT}, entry_order_type="stop"))["entry_px"] == pytest.approx(98.4)

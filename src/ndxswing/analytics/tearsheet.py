@@ -2,7 +2,20 @@
 DSR, PBO, Monte Carlo tail probabilities and the OOS release gates (8.4).
 
 Segments are never pooled.  A segment without data is reported as ``n/a`` -
-in particular Paper and Live stay empty until real ledgers exist.
+in particular Paper and Live stay empty until real ledgers exist.  Holdout is
+the tail of the stitched OOS series that no retention decision ever saw (only
+present when an ablation reserved one).
+
+Release battery (locked, revised once after the 2015-2025 audit):
+
+* significance  - Sharpe > 0.80, DSR > 0.95, CSCV P(OOS loss) < 15%, rank PBO
+                  (conditional), profit factor > 1.20, positive under 1.5x costs;
+* survival      - max drawdown < 10% and Monte Carlo P(DD >= 20%) < 2%, at the
+                  risk budget of the run AND replayed at the 0.75% ceiling;
+* evidence      - at least 100 independent OOS trades.
+
+The share of profitable walk-forward folds is informational only: it is
+reported on non-overlapping six-month slices of the stitched OOS curve.
 """
 
 from __future__ import annotations
@@ -18,11 +31,11 @@ import pandas as pd
 from ..backtest.engine import BacktestResult
 from ..data.synthetic import SYNTHETIC_SOURCE
 from .montecarlo import MonteCarloConfig, run_monte_carlo
-from .stats import compute_metrics, deflated_sharpe_ratio, probabilistic_sharpe_ratio, sharpe_per_period
+from .stats import compute_metrics, deflated_sharpe_ratio, slice_stability
 
-SEGMENTS = ("in_sample", "validation", "oos", "paper", "live")
+SEGMENTS = ("in_sample", "validation", "oos", "holdout", "paper", "live")
 SEGMENT_TITLES = {"in_sample": "In-Sample", "validation": "Validation", "oos": "Out-of-Sample",
-                  "paper": "Paper", "live": "Live"}
+                  "holdout": "Holdout", "paper": "Paper", "live": "Live"}
 
 #: (row label, metric key, format)
 ROWS = [
@@ -32,6 +45,7 @@ ROWS = [
     ("4. Sortino ratio", "sortino", "f2"),
     ("5. Calmar ratio", "calmar", "f2"),
     ("6. Maximum drawdown", "max_drawdown", "pct"),
+    ("6b. Max drawdown / annualised volatility (info)", "dd_over_vol", "f2"),
     ("7. Profit factor (net)", "profit_factor", "f2"),
     ("8. Win rate", "win_rate", "pct"),
     ("9. Avg win / avg loss", "avg_win_over_avg_loss", "f2"),
@@ -101,6 +115,11 @@ class TearsheetReporter:
         mc_config: MonteCarloConfig = MonteCarloConfig(),
         meta: dict | None = None,
         title: str = "NASDAQ-100 swing system",
+        oos_ceiling: BacktestResult | None = None,
+        ceiling_risk: float | None = None,
+        prior_eff_trials: float = 0.0,
+        selection_on_oos: bool = False,
+        holdout_start: str | None = None,
     ) -> None:
         unknown = set(segments) - set(SEGMENTS)
         if unknown:
@@ -116,12 +135,18 @@ class TearsheetReporter:
         self.mc_config = mc_config
         self.meta = dict(meta or {})
         self.title = title
+        self.oos_ceiling = oos_ceiling            # stitched OOS replayed at the risk ceiling (same fold parameters)
+        self.ceiling_risk = ceiling_risk
+        self.prior_eff_trials = float(prior_eff_trials)   # effective trials carried from earlier research
+        self.selection_on_oos = selection_on_oos  # module variants were compared on the stitched OOS series
+        self.holdout_start = holdout_start
 
     # ----------------------------------------------------------------- build
     def _segment_metrics(self, res: BacktestResult) -> dict:
         m = compute_metrics(res)
         mc = run_monte_carlo(res.daily_returns().to_numpy(), self.mc_config)
         m["monte_carlo"] = mc
+        m["dd_over_vol"] = m["max_drawdown"] / m["ann_vol"] if m.get("ann_vol", 0) > 1e-12 else np.nan
         # headline MC row = the most adverse generator for each statistic
         usable = [v for v in mc.values() if "error" not in v]
         for key, worst in (("p_dd_10", max), ("p_dd_20", max), ("p_dd_30", max), ("p_ruin", max),
@@ -140,15 +165,13 @@ class TearsheetReporter:
         oos = self.segments["oos"]
         dsr = None
         if oos is not None and self.trial_sharpes is not None and len(self.trial_sharpes) >= 2:
-            dsr = deflated_sharpe_ratio(oos.daily_returns().to_numpy(), self.trial_sharpes, self.n_trials, self.rho_bar)
+            dsr = deflated_sharpe_ratio(oos.daily_returns().to_numpy(), self.trial_sharpes, self.n_trials, self.rho_bar,
+                                        self.prior_eff_trials)
         elif oos is not None and self.n_trials == 1:
-            # one fixed configuration, nothing selected: N_eff = 1 and SR_0 = 0
-            r = oos.daily_returns().to_numpy()
-            psr0 = probabilistic_sharpe_ratio(r, 0.0)
-            dsr = {"dsr": psr0, "dsr_cross_trial_mean": float("nan"), "psr_zero": psr0,
-                   "sr_per_period": sharpe_per_period(r), "sr0_per_period": 0.0, "sr0_cross_trial_mean": float("nan"),
-                   "n_trials": 1, "n_eff": 1.0, "rho_bar": 1.0, "trial_sr_mean": float("nan"),
-                   "trial_sr_std": float("nan"), "no_selection": True}
+            # one fixed configuration, nothing selected in THIS run: N_eff_cur = 1; SR_0 = 0 unless
+            # effective trials are carried forward from earlier research
+            dsr = deflated_sharpe_ratio(oos.daily_returns().to_numpy(), None, 1, 1.0, self.prior_eff_trials)
+            dsr["no_selection"] = True
         report["dsr"] = dsr
         report["breakers"] = None if oos is None else {
             "pauses": oos.stats.get("n_pauses"), "deactivated_at": oos.stats.get("deactivated_at"),
@@ -164,17 +187,31 @@ class TearsheetReporter:
         if self.fold_table is not None and len(self.fold_table):
             ft = self.fold_table
             folds = {"n_folds": int(len(ft)), "profitable_share": float((ft["oos_net_pnl"] > 0).mean()),
+                     "zero_trade_folds": int((ft["oos_trades"] == 0).sum()) if "oos_trades" in ft else None,
                      "table": ft.to_dict(orient="records")}
         report["folds"] = folds
-        report["gates"] = self._gates(seg.get("oos"), dsr, stress, folds)
+        report["stability"] = None if oos is None else slice_stability(oos, 6)
+        ceiling = None
+        if self.oos_ceiling is not None and len(self.oos_ceiling.equity):
+            cm = self._segment_metrics(self.oos_ceiling)
+            ceiling = {k: cm[k] for k in ("sharpe", "ann_vol", "max_drawdown", "dd_over_vol", "mc_p_dd_20", "mc_p_dd_10",
+                                          "mc_worst_99_dd", "net_pnl", "n_trades")}
+            ceiling |= {"b_risk": self.ceiling_risk, "pauses": self.oos_ceiling.stats.get("n_pauses"),
+                        "deactivated_at": self.oos_ceiling.stats.get("deactivated_at")}
+        report["risk_ceiling"] = ceiling
+        report["selection_on_oos"] = self.selection_on_oos
+        report["holdout_start"] = self.holdout_start
+        report["gates"] = self._gates(seg.get("oos"), dsr, stress, ceiling)
         report["verdict"] = self._verdict(report["gates"], synthetic)
         return report
 
-    #: thresholds of the release battery (section 8.4, as recalibrated)
+    #: thresholds of the release battery (section 8.4; revised once after the 2015-2025 audit:
+    #: the profitable-folds share became informational, the trade floor went from 150 to 100
+    #: and the two survival gates are also applied at the risk ceiling)
     MIN_SHARPE, MIN_DSR, MAX_OOS_LOSS, MAX_RANK_PBO, RANK_PBO_MIN_IQR = 0.80, 0.95, 0.15, 0.25, 0.25
-    MIN_PF, MAX_DD, MAX_MC_DD20, MIN_FOLDS, MIN_TRADES = 1.20, 0.10, 0.02, 0.65, 150
+    MIN_PF, MAX_DD, MAX_MC_DD20, MIN_TRADES = 1.20, 0.10, 0.02, 100
 
-    def _gates(self, oos: dict | None, dsr: dict | None, stress: dict | None, folds: dict | None) -> list[dict]:
+    def _gates(self, oos: dict | None, dsr: dict | None, stress: dict | None, ceiling: dict | None) -> list[dict]:
         def g(name: str, value: object, ok: bool | None, rule: str, status: str | None = None) -> dict:
             st = status or ("NOT EVALUATED" if ok is None else ("PASS" if ok else "FAIL"))
             return {"gate": name, "value": value, "rule": rule, "status": st}
@@ -207,7 +244,8 @@ class TearsheetReporter:
             rank = g("CSCV rank PBO", rv, None, rule, f"N/A (IS Sharpe IQR {iqr:.2f}: homogeneous variants)")
         else:
             rank = g("CSCV rank PBO", rv, rv < self.MAX_RANK_PBO, rule)
-        share = None if folds is None else folds["profitable_share"]
+        cdd, cp20 = val(ceiling, "max_drawdown"), val(ceiling, "mc_p_dd_20")
+        tier = "risk ceiling" if not self.ceiling_risk else f"{100 * self.ceiling_risk:.2f}% risk ceiling"
         return [
             g("OOS net Sharpe", sh, None if sh is None else sh > self.MIN_SHARPE, "> 0.80"),
             g("Deflated Sharpe Ratio (zero-mean null, N_eff)", d, None if d is None else d > self.MIN_DSR, "> 0.95"),
@@ -218,8 +256,9 @@ class TearsheetReporter:
               None if stress is None else stress["net_pnl"] > 0, "> 0"),
             g("OOS maximum drawdown (true high-water mark)", mdd, None if mdd is None else mdd < self.MAX_DD, "< 10%"),
             g("Monte Carlo P(DD >= 20%)", p20, None if p20 is None else p20 < self.MAX_MC_DD20, "< 2%"),
-            g("Profitable walk-forward OOS folds", share, None if share is None else share >= self.MIN_FOLDS, ">= 65%"),
-            g("Independent OOS trades", nt, None if nt is None else nt >= self.MIN_TRADES, ">= 150"),
+            g(f"OOS maximum drawdown at the {tier}", cdd, None if cdd is None else cdd < self.MAX_DD, "< 10%"),
+            g(f"Monte Carlo P(DD >= 20%) at the {tier}", cp20, None if cp20 is None else cp20 < self.MAX_MC_DD20, "< 2%"),
+            g("Independent OOS trades", nt, None if nt is None else nt >= self.MIN_TRADES, f">= {self.MIN_TRADES}"),
         ]
 
     def _verdict(self, gates: list[dict], synthetic: bool) -> str:
@@ -253,10 +292,21 @@ class TearsheetReporter:
         L += ["", "Monte Carlo rows show the most adverse of the three generators (block bootstrap, "
               "Student-t / q-Gaussian, tempered Levy); per-generator detail is in the JSON report.", "",
               "Validation is the span the hyper-parameters were selected on (optimistic by construction); "
-              "In-Sample is the model-estimation span with the parameters later chosen for it; only "
-              "Out-of-Sample is untouched by selection.", ""]
+              "In-Sample is the model-estimation span with the parameters later chosen for it.", ""]
+        hs = rep.get("holdout_start")
+        if rep.get("selection_on_oos"):
+            L += ["Out-of-Sample is the stitched walk-forward series. Its hyper-parameters were chosen on validation data, "
+                  "but the module retention decisions of the ablation were made ON this series"
+                  + (f" up to the day before {hs}" if hs else "") + ", so it is not selection-free; the DSR and "
+                  "P(OOS loss) gates exist to account for that. "
+                  + (f"Holdout is the part of the same series from {hs} on, which no decision ever saw: the only "
+                     "selection-free column, and too short to carry a gate on its own." if hs else
+                     "No holdout was reserved, so no column of this table is selection-free."), ""]
+        else:
+            L += ["Out-of-Sample is the stitched walk-forward series; it was not used to choose anything in this run "
+                  "(earlier runs on the same data are a separate matter: see prior effective trials).", ""]
 
-        L += ["## Release gates (untouched OOS)", "", "| Gate | Value | Rule | Status |", "|---|---:|---|---|"]
+        L += ["## Release gates (stitched walk-forward OOS)", "", "| Gate | Value | Rule | Status |", "|---|---:|---|---|"]
         for g in rep["gates"]:
             v = g["value"]
             vs = "n/a" if v is None else (f"{v:.4f}" if isinstance(v, float) else str(v))
@@ -271,15 +321,25 @@ class TearsheetReporter:
         if rep["dsr"]:
             d = rep["dsr"]
             L += ["## Overfitting diagnostics", ""]
-            if d.get("no_selection"):
+            prior = d.get("prior_eff_trials", 0.0) or 0.0
+            if d.get("no_selection") and not prior:
                 L.append(f"- One fixed configuration, nothing selected: N_eff = 1, SR0 = 0, so the DSR is the "
                          f"probabilistic Sharpe ratio against zero, **{_fmt(d['dsr'], 'f4')}** "
                          f"(per-period SR {d['sr_per_period']:.4f}). The CSCV statistics are not applicable.")
+            elif d.get("no_selection"):
+                L.append(f"- **Gate.** One fixed configuration in this run, {prior:.1f} effective trials carried from "
+                         f"earlier research: N_eff = {d['n_eff']:.1f}, SR0 = {d['sr0_per_period']:.4f} per period "
+                         f"(variance 1/T), DSR **{_fmt(d['dsr'], 'f4')}** (per-period SR {d['sr_per_period']:.4f}; "
+                         f"against zero: {_fmt(d['psr_zero'], 'f4')}). The CSCV statistics are not applicable.")
             else:
                 L.append(f"- **Gate.** DSR, zero-mean null: **{_fmt(d['dsr'], 'f4')}** (per-period SR "
                          f"{d['sr_per_period']:.4f} vs SR0 {d['sr0_per_period']:.4f}; K = {d['n_trials']} configurations "
-                         f"compared, average pairwise correlation {d['rho_bar']:.2f}, N_eff = {d['n_eff']:.1f}; "
-                         f"cross-trial Sharpe std {d['trial_sr_std']:.4f})")
+                         f"compared, average pairwise correlation {d['rho_bar']:.2f}, N_eff = "
+                         f"{d.get('n_eff_current', d['n_eff']):.1f}; cross-trial Sharpe std {d['trial_sr_std']:.4f})")
+                if prior:
+                    L.append(f"- Prior effective trials carried from earlier research: {prior:.1f}, so N_eff = "
+                             f"{d['n_eff']:.1f} in total and the benchmark variance blends the cross-trial variance "
+                             f"with 1/T for the prior trials.")
                 L.append(f"- Informational. DSR with the cross-trial mean in the benchmark and all K trials: "
                          f"{_fmt(d['dsr_cross_trial_mean'], 'f4')} (SR0 {d['sr0_cross_trial_mean']:.4f}, cross-trial mean "
                          f"{d['trial_sr_mean']:.4f}). Probabilistic Sharpe ratio against zero (N_eff = 1): "
@@ -298,9 +358,35 @@ class TearsheetReporter:
             L += [f"## OOS under {s.get('cost_stress', 1.5)}x spread / slippage / commission / financing markup", "",
                   f"- Net P&L {_fmt(s['net_pnl'], 'eur')} EUR, Sharpe {_fmt(s['sharpe'], 'f2')}, "
                   f"profit factor {_fmt(s['profit_factor'], 'f2')}, max drawdown {_fmt(s['max_drawdown'], 'pct')}", ""]
+        if rep.get("risk_ceiling"):
+            c = rep["risk_ceiling"]
+            off = c["deactivated_at"]
+            L += [f"## Stitched OOS replayed at the {_fmt(c['b_risk'], 'pct')} risk ceiling", "",
+                  "Same signals and fold parameters, nothing re-estimated; only the risk budget per trade changes.", "",
+                  f"- Max drawdown {_fmt(c['max_drawdown'], 'pct')}, annualised volatility {_fmt(c['ann_vol'], 'pct')}, "
+                  f"max drawdown / volatility {_fmt(c['dd_over_vol'], 'f2')}, Sharpe {_fmt(c['sharpe'], 'f2')}, "
+                  f"net P&L {_fmt(c['net_pnl'], 'eur')} EUR",
+                  f"- Monte Carlo P(DD >= 10%) {_fmt(c['mc_p_dd_10'], 'pct')}, P(DD >= 20%) {_fmt(c['mc_p_dd_20'], 'pct')}, "
+                  f"worst 99% drawdown {_fmt(c['mc_worst_99_dd'], 'pct')}; breaker pauses {c['pauses']}, hard deactivation "
+                  f"{'none' if off is None else 'YES, on ' + str(off)[:10]}", ""]
+        if rep.get("stability") and rep["stability"]["n_slices"]:
+            st = rep["stability"]
+            L += [f"## Stability over time (informational, not a gate)", "",
+                  f"Non-overlapping {st['months']}-month slices of the stitched OOS curve: {st['profitable']} of "
+                  f"{st['n_slices']} profitable ({100 * st['share_profitable']:.1f}%), {st['losing']} losing, "
+                  f"{st['inactive']} with no trade (active slices: {st['active']}).", "",
+                  "| Slice | Window | Net P&L | Trades | Note |", "|---:|---|---:|---:|---|"]
+            for row in st["table"]:
+                note = "" if row["complete"] else "incomplete, not counted"
+                note = "no trade" if row["inactive"] and row["complete"] else note
+                L.append(f"| {row['slice']} | {str(row['start'])[:10]} .. {str(row['end'])[:10]} | {row['net_pnl']:.2f} | "
+                         f"{row['trades']} | {note} |")
+            L.append("")
         if rep["folds"]:
             f = rep["folds"]
-            L += [f"## Walk-forward folds ({f['n_folds']} folds, {100 * f['profitable_share']:.1f}% profitable OOS)", "",
+            L += [f"## Walk-forward folds ({f['n_folds']} overlapping OOS windows, each run on its own; informational)", "",
+                  f"{100 * f['profitable_share']:.1f}% of the windows were profitable. Adjacent windows share half "
+                  f"their span, so trades are counted twice across the table.", "",
                   "| Fold | OOS window | Val J | Val Sharpe | OOS Sharpe | OOS net P&L | OOS trades |",
                   "|---:|---|---:|---:|---:|---:|---:|"]
             for row in f["table"]:
