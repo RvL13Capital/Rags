@@ -1,0 +1,82 @@
+{
+ "premium proportional to variance, no cap": {
+  "paths": 1000,
+  "n_boot": 1000,
+  "days": 2653,
+  "true": {
+   "alpha_ann": -0.0015409438143980715,
+   "d_sharpe_ann": -0.20820731715808072,
+   "d_sharpe": -0.013115828151053168,
+   "alpha": -6.1148564063415535e-06,
+   "sharpe_bh": 0.7935309725967472,
+   "sharpe_managed": 0.5853236554386665
+  },
+  "reject alpha <= 0 (one-sided 5%)": 0.056,
+  "reject alpha = 0 (two-sided 5%)": 0.06,
+  "reject alpha = true value (two-sided 5%)": 0.059,
+  "reject Sharpe difference <= 0 (one-sided 5%)": 0.006,
+  "reject Sharpe difference = true value (two-sided 5%)": 0.043,
+  "reject CER(3) difference <= 0 (one-sided 5%)": 0.006,
+  "mean estimated Sharpe difference": -0.20910981377736182
+ },
+ "premium proportional to variance, cap 1.0": {
+  "paths": 1000,
+  "n_boot": 1000,
+  "days": 2653,
+  "true": {
+   "alpha_ann": -1.8188801517972625e-05,
+   "d_sharpe_ann": -0.1063406425937844,
+   "d_sharpe": -0.006698830822903717,
+   "alpha": -7.217778380147867e-08,
+   "sharpe_bh": 0.7935309725967472,
+   "sharpe_managed": 0.6871903300029628
+  },
+  "reject alpha <= 0 (one-sided 5%)": 0.055,
+  "reject alpha = 0 (two-sided 5%)": 0.06,
+  "reject alpha = true value (two-sided 5%)": 0.06,
+  "reject Sharpe difference <= 0 (one-sided 5%)": 0.009,
+  "reject Sharpe difference = true value (two-sided 5%)": 0.038,
+  "reject CER(3) difference <= 0 (one-sided 5%)": 0.002,
+  "mean estimated Sharpe difference": -0.10877143878580463
+ },
+ "premium proportional to volatility, no cap": {
+  "paths": 1000,
+  "n_boot": 1000,
+  "days": 2653,
+  "true": {
+   "alpha_ann": 0.030179490182069193,
+   "d_sharpe_ann": -0.04952094257516049,
+   "d_sharpe": -0.0031195261605567893,
+   "alpha": 0.00011975988167487775,
+   "sharpe_bh": 0.7674571908685257,
+   "sharpe_managed": 0.7179362482933652
+  },
+  "reject alpha <= 0 (one-sided 5%)": 0.177,
+  "reject alpha = 0 (two-sided 5%)": 0.126,
+  "reject alpha = true value (two-sided 5%)": 0.088,
+  "reject Sharpe difference <= 0 (one-sided 5%)": 0.035,
+  "reject Sharpe difference = true value (two-sided 5%)": 0.06,
+  "reject CER(3) difference <= 0 (one-sided 5%)": 0.033,
+  "mean estimated Sharpe difference": -0.06078117681159783
+ },
+ "premium proportional to volatility, cap 1.0": {
+  "paths": 1000,
+  "n_boot": 1000,
+  "days": 2653,
+  "true": {
+   "alpha_ann": 0.017657721830972906,
+   "d_sharpe_ann": 0.02255843579933159,
+   "d_sharpe": 0.0014210478831344748,
+   "alpha": 7.007032472608296e-05,
+   "sharpe_bh": 0.7674571908685257,
+   "sharpe_managed": 0.7900156266678573
+  },
+  "reject alpha <= 0 (one-sided 5%)": 0.182,
+  "reject alpha = 0 (two-sided 5%)": 0.117,
+  "reject alpha = true value (two-sided 5%)": 0.096,
+  "reject Sharpe difference <= 0 (one-sided 5%)": 0.079,
+  "reject Sharpe difference = true value (two-sided 5%)": 0.059,
+  "reject CER(3) difference <= 0 (one-sided 5%)": 0.024,
+  "mean estimated Sharpe difference": 0.010743508036988581
+ }
+}

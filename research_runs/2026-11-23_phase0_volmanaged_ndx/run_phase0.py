@@ -175,8 +175,7 @@ for wname, (a0, a1) in WINDOWS.items():
     zero = np.zeros(len(mkt))
     b1 = vm.simulate_cfd_account(mkt, np.r_[1.0, np.full(len(mkt) - 1, np.nan)], costs=CAPITAL, tax=TAX, rebalance=False)
     b2 = vm.simulate_etf_buy_and_hold(mkt, tax=TAX)
-    detail[wname] = {"B1 buy-and-hold 1:1 CFD": describe(b1, years), "B2 buy-and-hold accumulating ETF": describe(b2, years),
-                     "B2 pre-tax": describe(b2, years, "liq_pre"), "B1 pre-tax": describe(b1, years, "liq_pre")}
+    detail[wname] = {"B1 buy-and-hold 1:1 CFD": describe(b1, years), "B2 buy-and-hold accumulating ETF": describe(b2, years)}
     for name, (signal, kw) in SPECS.items():
         if wname != "primary" and not name.startswith("PRIMARY"):
             continue
@@ -190,9 +189,15 @@ for wname, (a0, a1) in WINDOWS.items():
                **{f"B1_{k}": v for k, v in evaluate(acct, b1, idle, boot=boot).items()},
                **{f"B2_{k}": v for k, v in evaluate(acct, b2, idle, boot=boot).items()}}
         if boot:
-            pre = {**{f"B1_{k}": v for k, v in evaluate(acct, b1, idle, "liq_pre", boot=False).items()},
-                   **{f"B2_{k}": v for k, v in evaluate(acct, b2, idle, "liq_pre", boot=False).items()}}
-            detail[wname]["PRIMARY pre-tax"] = {**describe(acct, years, "liq_pre"), **pre}
+            # the same three accounts with no tax at all (separate runs: nothing is paid along the way either)
+            off = GermanTax(enabled=False)
+            a_nt = vm.simulate_cfd_account(mkt, target(mkt, signal), **(kw | {"tax": off}))
+            b1_nt = vm.simulate_cfd_account(mkt, np.r_[1.0, np.full(len(mkt) - 1, np.nan)], costs=CAPITAL, tax=off, rebalance=False)
+            b2_nt = vm.simulate_etf_buy_and_hold(mkt, tax=off)
+            pre = {**{f"B1_{k}": v for k, v in evaluate(a_nt, b1_nt, idle, boot=False).items()},
+                   **{f"B2_{k}": v for k, v in evaluate(a_nt, b2_nt, idle, boot=False).items()}}
+            detail[wname]["PRIMARY pre-tax"] = {**describe(a_nt, years), **pre}
+            detail[wname]["B1 pre-tax"], detail[wname]["B2 pre-tax"] = describe(b1_nt, years), describe(b2_nt, years)
             detail[wname]["PRIMARY post-tax"] = row
             # block-length checks and the terminal-wealth bootstrap
             a_r, b_r = acct.returns().to_numpy(), b2.returns().to_numpy()
@@ -229,7 +234,8 @@ for wname in WINDOWS:
     p = detail[wname]["PRIMARY post-tax"]
     print({k: (np.round(v, 4).tolist() if isinstance(v, tuple) else round(v, 4)) for k, v in p.items()
            if k.startswith(("B1_", "B2_"))})
-    print("pre-tax:", {k: round(v, 4) for k, v in detail[wname]["PRIMARY pre-tax"].items() if k.startswith(("B1_", "B2_"))})
+    print("no tax at all:", {k: round(v, 4) for k, v in detail[wname]["PRIMARY pre-tax"].items()
+                             if k.startswith(("B1_", "B2_")) or k in ("terminal", "sharpe", "vol", "max_dd")})
     print("block checks vs B2:", detail[wname]["block_checks_B2"], "terminal wealth bootstrap:", detail[wname]["terminal_wealth_bootstrap_B2"])
 R["accounts"] = detail
 

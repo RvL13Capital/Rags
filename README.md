@@ -7,6 +7,10 @@
 > [`research_runs/2026-11-23_public_nq_2015_2025/`](research_runs/2026-11-23_public_nq_2015_2025/README.md).
 > That data set is now spent: later research on it carries the trials recorded in
 > [`docs/governance/prior_trials.md`](docs/governance/prior_trials.md).
+> A follow-up on the same spent sample asked whether the one component that helped, the RV20 filter,
+> is worth anything as volatility-managed passive exposure in a EUR 5,000 German retail account:
+> under the pre-declared rule it is not
+> ([`research_runs/2026-11-23_phase0_volmanaged_ndx/`](research_runs/2026-11-23_phase0_volmanaged_ndx/README.md)).
 > The release battery was revised once after that run was audited (see "Release gates"); the run
 > fails under the old and the new battery alike.
 > Everything under `docs/pipeline_verification/` is synthetic and tests the machinery only.
@@ -38,7 +42,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-142 tests, about a minute. They cover hand-computed fills and P&L for every branch of the order
+160 tests, about a minute. They cover hand-computed fills and P&L for every branch of the order
 state machine, Monte Carlo / brute-force references for the statistics, and look-ahead checks that
 recompute features and signals on truncated history.
 
