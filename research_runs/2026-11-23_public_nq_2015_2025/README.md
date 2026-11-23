@@ -3,6 +3,12 @@
 **Verdict: NOT READY FOR LIVE DEPLOYMENT.** All four configurations fail the locked release
 gates. The pre-declared primary configuration fails six of ten. Capital stays in cash.
 
+**Later note.** The gates quoted below are the ones in force when the run was made. The release
+battery was revised once afterwards (profitable folds became informational, the trade floor went
+from 150 to 100, and the drawdown gates are also applied at the 0.75% risk ceiling). Under the
+revised battery every configuration still fails the Sharpe, DSR and P(OOS loss) gates. The data
+set is spent; see [`docs/governance/prior_trials.md`](../../docs/governance/prior_trials.md).
+
 This is a preliminary run, not the planned one. The 2012–2026 vendor exports could not be reached
 from the build environment, so it uses a shorter, third-party price history (see "Data"). Code is
 v7 (commit `59f1cbd`), frozen; nothing was changed after results were seen. The plan in
