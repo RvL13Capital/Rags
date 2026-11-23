@@ -3,35 +3,46 @@
 > **PIPELINE VERIFICATION - SYNTHETIC DATA.** These results exercise the code on simulated prices.
 > They are not empirical market performance and say nothing about the NASDAQ-100.
 
-Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 427s.
+Synthetic sample 2012-2026; walk-forward 36m train / 12m validation / 6m OOS; 40 Optuna trials per fold where anything is tuned; 10000 Monte Carlo paths; lots normalised to index level 25,288.25; runtime 380s.
 
 | Data set | OOS Sharpe | OOS PF | OOS max DD | OOS trades | OOS net P&L (EUR) | DSR (gate) | N_eff | DSR (cross-trial mean, info) | CSCV P(OOS loss) | Rank PBO | Gates failed |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Null (martingale), full geometry tuned | -0.05 | 0.97 | 3.46% | 195 | -27.86 | 0.077 | 24.2 | 0.178 | 0.829 | 0.518 | 7 of 10 |
-| Planted edge x2 (after ablation, thresholds only) | 0.83 | 1.57 | 2.14% | 159 | 479.24 | 0.962 | 6.3 | 0.267 | 0.126 | n/a | 0 of 10 |
+| Null (martingale), full geometry tuned | -0.05 | 0.97 | 3.46% | 195 | -27.86 | 0.077 | 24.2 | 0.178 | 0.829 | 0.518 | 6 of 11 |
+| Planted edge x2 (after ablation, thresholds only) | 0.83 | 1.57 | 2.14% | 159 | 479.24 | 0.962 | 6.3 | 0.267 | 0.126 | n/a | 0 of 11 |
 
 ## Checks
 
-- Null data rejected by the release gates: **PASS** (failed gates: OOS net Sharpe, Deflated Sharpe Ratio (zero-mean null, N_eff), CSCV P(OOS loss of IS-best), CSCV rank PBO, OOS net profit factor, OOS net P&L under 1.5x costs, Profitable walk-forward OOS folds)
+- Null data rejected by the release gates: **PASS** (failed gates: OOS net Sharpe, Deflated Sharpe Ratio (zero-mean null, N_eff), CSCV P(OOS loss of IS-best), CSCV rank PBO, OOS net profit factor, OOS net P&L under 1.5x costs)
 - Planted edge clearly visible out of sample (Sharpe at least 0.5 above null, positive net P&L, profit factor above 1.2): **PASS**
 - Sizing per vehicle at EUR 5,000 (whole-unit IBUST100 never sizes, the 0.001-lot CFD does): **PASS**
 
 ## Operating characteristics of the release gates
 
-On this run the positive control fails 0 of 10 gates. One history says little, so the fixed-prior baseline was also run on independent synthetic histories (different seeds, nothing tuned, K = 1), each through the complete battery:
+On this run the positive control fails 0 of 11 gates. One history says little, so the fixed-prior baseline was also run on independent synthetic histories (different seeds, nothing tuned, K = 1), each through the complete battery:
 
 | Planted strength | Histories | Pass every gate | Median OOS Sharpe | Gates failed most often |
 |---:|---:|---:|---:|---|
-| 0 | 40 | 0 | -0.22 | OOS net Sharpe (40); Deflated Sharpe Ratio (zero-mean null, N_eff) (40); Profitable walk-forward OOS folds (39) |
-| 2 | 40 | 24 | 0.93 | OOS net Sharpe (13); Profitable walk-forward OOS folds (13) |
+| 0 | 40 | 0 | -0.22 | OOS net Sharpe (40); Deflated Sharpe Ratio (zero-mean null, N_eff) (40); OOS net profit factor (37) |
+| 2 | 40 | 27 | 0.93 | OOS net Sharpe (13) |
 
-The first row estimates the false-positive rate of the battery, the second its power against an edge of this size. Thresholds: Sharpe > 0.80, DSR > 0.95, P(OOS loss) < 15%, profit factor > 1.20, positive under 1.5x costs, max drawdown < 10%, Monte Carlo P(DD >= 20%) < 2%, profitable folds >= 65%, trades >= 150.
+The first row estimates the false-positive rate of the battery, the second its power against an edge of this size. Thresholds: Sharpe > 0.80, DSR > 0.95, P(OOS loss) < 15%, profit factor > 1.20, positive under 1.5x costs, max drawdown < 10% and Monte Carlo P(DD >= 20%) < 2% (both at the run's risk budget and replayed at the 0.75% ceiling), trades >= 100. The share of profitable folds is informational.
+
+## Operating characteristics with the full ablation
+
+Each history goes through the whole research path: full feature set, sequential ablation of every module with its thresholds tuned, then the release battery on whatever configuration the ablation retained (the variants examined count as trials). The fixed-prior baseline of the same history is shown beside it.
+
+| Planted strength | Histories (seeds) | Pass, fixed-prior baseline | Pass, after ablation | Median OOS Sharpe, baseline / after ablation | Nothing retained | Gates failed after ablation |
+|---:|---|---:|---:|---:|---:|---|
+| 0 | 40 (100-139) | 0 | 0 | -0.22 / 0.10 | 4 | OOS net Sharpe (40); Deflated Sharpe Ratio (zero-mean null, N_eff) (40); CSCV P(OOS loss of IS-best) (38); OOS net profit factor (33); OOS net P&L under 1.5x costs (18); OOS maximum drawdown at the 0.75% risk ceiling (3); Independent OOS trades (1) |
+| 2 | 20 (300-319) | 13 | 15 | 0.94 / 1.01 | 7 | OOS net Sharpe (4); Deflated Sharpe Ratio (zero-mean null, N_eff) (3); CSCV P(OOS loss of IS-best) (1) |
+
+Planted-edge histories whose retained configuration has an OOS Sharpe above 0.80: 16, of which 15 pass every gate (failures: Deflated Sharpe Ratio (zero-mean null, N_eff) (1)).
 
 ## How strong must an edge be to be seen?
 
 Fixed-prior baseline, no tuning, stitched walk-forward OOS, same seed. Strength 1 is a drift of 0.12% a day inside trend regimes against roughly 0.9% daily volatility; the positive control above uses strength 2.
 
-| Planted strength | Trend drift / day | OOS Sharpe | OOS PF | Expectancy (R) | Trades | Net P&L (EUR) | Profitable folds |
+| Planted strength | Trend drift / day | OOS Sharpe | OOS PF | Expectancy (R) | Trades | Net P&L (EUR) | Profitable fold windows (info) |
 |---:|---:|---:|---:|---:|---:|---:|---:|
 | 0 | 0.00% | -0.01 | 0.99 | -0.011 | 204 | -14.80 | 50% |
 | 1 | 0.12% | 0.22 | 1.13 | 0.090 | 210 | 183.42 | 48% |

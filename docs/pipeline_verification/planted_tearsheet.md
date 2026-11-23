@@ -22,43 +22,47 @@ Data sources: SYNTHETIC-PIPELINE-VERIFICATION
 | initial equity | 5,000 EUR |
 | ablation variants evaluated | 15 |
 | largest search space in any variant | 1 |
+| risk per trade | 0.25% (survival gates also at 0.75%) |
 
 ## Performance by segment (never pooled)
 
-| Metric | In-Sample | Validation | Out-of-Sample | Paper | Live |
-|---|---:|---:|---:|---:|---:|
-| 1. CAGR (net) | 0.83% | 1.00% | 0.86% | n/a | n/a |
-| 2. Annualised volatility | 0.94% | 1.04% | 1.03% | n/a | n/a |
-| 3. Sharpe ratio (net, rf=0) | 0.89 | 0.96 | 0.83 | n/a | n/a |
-| 4. Sortino ratio | 1.46 | 1.56 | 1.31 | n/a | n/a |
-| 5. Calmar ratio | 0.39 | 0.47 | 0.40 | n/a | n/a |
-| 6. Maximum drawdown | 2.15% | 2.15% | 2.14% | n/a | n/a |
-| 7. Profit factor (net) | 1.75 | 1.71 | 1.57 | n/a | n/a |
-| 8. Win rate | 52.60% | 52.69% | 51.57% | n/a | n/a |
-| 9. Avg win / avg loss | 1.58 | 1.53 | 1.48 | n/a | n/a |
-| 10a. Net expectancy / trade (EUR) | 3.76 | 3.53 | 3.01 | n/a | n/a |
-| 10b. Net expectancy / trade (R) | 0.348 | 0.326 | 0.284 | n/a | n/a |
-| 11. Independent trades | 154 | 167 | 159 | n/a | n/a |
-| 12. Annualised turnover (x equity) | 6.1 | 7.6 | 7.5 | n/a | n/a |
-| 13a. Transaction costs (EUR) | 55.26 | 59.55 | 56.71 | n/a | n/a |
-| 13b. Financing costs (EUR) | 65.84 | 70.26 | 74.86 | n/a | n/a |
-| 14a. ES 97.5% daily | 0.20% | 0.22% | 0.23% | n/a | n/a |
-| 14b. ES 99% daily | 0.27% | 0.30% | 0.30% | n/a | n/a |
-| 15a. MC P(DD >= 10%) | 0.15% | 0.21% | 0.21% | n/a | n/a |
-| 15b. MC P(DD >= 20%) | 0.02% | 0.03% | 0.03% | n/a | n/a |
-| 15c. MC P(DD >= 30%) | 0.01% | 0.02% | 0.02% | n/a | n/a |
-| 15d. MC P(ruin / forced stop) | 0.01% | 0.01% | 0.01% | n/a | n/a |
-| 15e. MC median terminal wealth (x) | 1.006 | 1.007 | 1.007 | n/a | n/a |
-| 15f. MC worst 99% drawdown | 4.59% | 5.16% | 5.03% | n/a | n/a |
-| 15g. MC median contiguous recovery (days) | 122 | 120 | 120 | n/a | n/a |
-| Net P&L (EUR) | 578.79 | 589.70 | 479.24 | n/a | n/a |
-| Sample length (years) | 13.18 | 11.18 | 10.68 | n/a | n/a |
+| Metric | In-Sample | Validation | Out-of-Sample | Holdout | Paper | Live |
+|---|---:|---:|---:|---:|---:|---:|
+| 1. CAGR (net) | 0.83% | 1.00% | 0.86% | n/a | n/a | n/a |
+| 2. Annualised volatility | 0.94% | 1.04% | 1.03% | n/a | n/a | n/a |
+| 3. Sharpe ratio (net, rf=0) | 0.89 | 0.96 | 0.83 | n/a | n/a | n/a |
+| 4. Sortino ratio | 1.46 | 1.56 | 1.31 | n/a | n/a | n/a |
+| 5. Calmar ratio | 0.39 | 0.47 | 0.40 | n/a | n/a | n/a |
+| 6. Maximum drawdown | 2.15% | 2.15% | 2.14% | n/a | n/a | n/a |
+| 6b. Max drawdown / annualised volatility (info) | 2.29 | 2.06 | 2.07 | n/a | n/a | n/a |
+| 7. Profit factor (net) | 1.75 | 1.71 | 1.57 | n/a | n/a | n/a |
+| 8. Win rate | 52.60% | 52.69% | 51.57% | n/a | n/a | n/a |
+| 9. Avg win / avg loss | 1.58 | 1.53 | 1.48 | n/a | n/a | n/a |
+| 10a. Net expectancy / trade (EUR) | 3.76 | 3.53 | 3.01 | n/a | n/a | n/a |
+| 10b. Net expectancy / trade (R) | 0.348 | 0.326 | 0.284 | n/a | n/a | n/a |
+| 11. Independent trades | 154 | 167 | 159 | n/a | n/a | n/a |
+| 12. Annualised turnover (x equity) | 6.1 | 7.6 | 7.5 | n/a | n/a | n/a |
+| 13a. Transaction costs (EUR) | 55.26 | 59.55 | 56.71 | n/a | n/a | n/a |
+| 13b. Financing costs (EUR) | 65.84 | 70.26 | 74.86 | n/a | n/a | n/a |
+| 14a. ES 97.5% daily | 0.20% | 0.22% | 0.23% | n/a | n/a | n/a |
+| 14b. ES 99% daily | 0.27% | 0.30% | 0.30% | n/a | n/a | n/a |
+| 15a. MC P(DD >= 10%) | 0.15% | 0.21% | 0.21% | n/a | n/a | n/a |
+| 15b. MC P(DD >= 20%) | 0.02% | 0.03% | 0.03% | n/a | n/a | n/a |
+| 15c. MC P(DD >= 30%) | 0.01% | 0.02% | 0.02% | n/a | n/a | n/a |
+| 15d. MC P(ruin / forced stop) | 0.01% | 0.01% | 0.01% | n/a | n/a | n/a |
+| 15e. MC median terminal wealth (x) | 1.006 | 1.007 | 1.007 | n/a | n/a | n/a |
+| 15f. MC worst 99% drawdown | 4.59% | 5.16% | 5.03% | n/a | n/a | n/a |
+| 15g. MC median contiguous recovery (days) | 122 | 120 | 120 | n/a | n/a | n/a |
+| Net P&L (EUR) | 578.79 | 589.70 | 479.24 | n/a | n/a | n/a |
+| Sample length (years) | 13.18 | 11.18 | 10.68 | n/a | n/a | n/a |
 
 Monte Carlo rows show the most adverse of the three generators (block bootstrap, Student-t / q-Gaussian, tempered Levy); per-generator detail is in the JSON report.
 
-Validation is the span the hyper-parameters were selected on (optimistic by construction); In-Sample is the model-estimation span with the parameters later chosen for it; only Out-of-Sample is untouched by selection.
+Validation is the span the hyper-parameters were selected on (optimistic by construction); In-Sample is the model-estimation span with the parameters later chosen for it.
 
-## Release gates (untouched OOS)
+Out-of-Sample is the stitched walk-forward series. Its hyper-parameters were chosen on validation data, but the module retention decisions of the ablation were made ON this series, so it is not selection-free; the DSR and P(OOS loss) gates exist to account for that. No holdout was reserved, so no column of this table is selection-free.
+
+## Release gates (stitched walk-forward OOS)
 
 | Gate | Value | Rule | Status |
 |---|---:|---|---|
@@ -70,8 +74,9 @@ Validation is the span the hyper-parameters were selected on (optimistic by cons
 | OOS net P&L under 1.5x costs | 399.9477 | > 0 | PASS |
 | OOS maximum drawdown (true high-water mark) | 0.0214 | < 10% | PASS |
 | Monte Carlo P(DD >= 20%) | 0.0003 | < 2% | PASS |
-| Profitable walk-forward OOS folds | 0.6667 | >= 65% | PASS |
-| Independent OOS trades | 159 | >= 150 | PASS |
+| OOS maximum drawdown at the 0.75% risk ceiling | 0.0628 | < 10% | PASS |
+| Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling | 0.0000 | < 2% | PASS |
+| Independent OOS trades | 159 | >= 100 | PASS |
 
 Circuit breakers in the OOS run: 0 pause(s) at -8%; hard deactivation at -10% of the all-time peak: none. Maximum drawdown is always measured from the un-rebased high-water mark.
 
@@ -85,7 +90,45 @@ Circuit breakers in the OOS run: 0 pause(s) at -8%; hard deactivation at -10% of
 
 - Net P&L 399.95 EUR, Sharpe 0.71, profit factor 1.47, max drawdown 2.23%
 
-## Walk-forward folds (42 folds, 66.7% profitable OOS)
+## Stitched OOS replayed at the 0.75% risk ceiling
+
+Same signals and fold parameters, nothing re-estimated; only the risk budget per trade changes.
+
+- Max drawdown 6.28%, annualised volatility 2.83%, max drawdown / volatility 2.21, Sharpe 0.68, net P&L 1,117.02 EUR
+- Monte Carlo P(DD >= 10%) 0.04%, P(DD >= 20%) 0.00%, worst 99% drawdown 6.37%; breaker pauses 0, hard deactivation none
+
+## Stability over time (informational, not a gate)
+
+Non-overlapping 6-month slices of the stitched OOS curve: 13 of 21 profitable (61.9%), 8 losing, 0 with no trade (active slices: 21).
+
+| Slice | Window | Net P&L | Trades | Note |
+|---:|---|---:|---:|---|
+| 0 | 2016-02-03 .. 2016-08-02 | -19.84 | 6 |  |
+| 1 | 2016-08-03 .. 2017-02-02 | 124.56 | 12 |  |
+| 2 | 2017-02-03 .. 2017-08-02 | 31.13 | 14 |  |
+| 3 | 2017-08-03 .. 2018-02-02 | 16.17 | 6 |  |
+| 4 | 2018-02-05 .. 2018-08-02 | 9.16 | 5 |  |
+| 5 | 2018-08-03 .. 2019-02-01 | -13.84 | 3 |  |
+| 6 | 2019-02-04 .. 2019-08-02 | 35.94 | 4 |  |
+| 7 | 2019-08-05 .. 2020-01-31 | -26.75 | 5 |  |
+| 8 | 2020-02-03 .. 2020-07-31 | -16.12 | 3 |  |
+| 9 | 2020-08-03 .. 2021-02-02 | -3.18 | 2 |  |
+| 10 | 2021-02-03 .. 2021-08-02 | 35.14 | 8 |  |
+| 11 | 2021-08-03 .. 2022-02-02 | -26.74 | 12 |  |
+| 12 | 2022-02-03 .. 2022-08-02 | 8.11 | 11 |  |
+| 13 | 2022-08-03 .. 2023-02-02 | 141.67 | 11 |  |
+| 14 | 2023-02-03 .. 2023-08-02 | 72.63 | 11 |  |
+| 15 | 2023-08-03 .. 2024-02-02 | 104.63 | 9 |  |
+| 16 | 2024-02-05 .. 2024-08-02 | -9.82 | 3 |  |
+| 17 | 2024-08-05 .. 2025-01-31 | 64.75 | 12 |  |
+| 18 | 2025-02-03 .. 2025-08-01 | 36.77 | 3 |  |
+| 19 | 2025-08-04 .. 2026-02-02 | -56.18 | 6 |  |
+| 20 | 2026-02-03 .. 2026-07-31 | 4.50 | 7 |  |
+| 21 | 2026-08-03 .. 2026-10-30 | -33.43 | 6 | incomplete, not counted |
+
+## Walk-forward folds (42 overlapping OOS windows, each run on its own; informational)
+
+66.7% of the windows were profitable. Adjacent windows share half their span, so trades are counted twice across the table.
 
 | Fold | OOS window | Val J | Val Sharpe | OOS Sharpe | OOS net P&L | OOS trades |
 |---:|---|---:|---:|---:|---:|---:|

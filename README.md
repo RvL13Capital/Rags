@@ -329,13 +329,23 @@ true high-water mark. Live trading never resumes on its own.
 ndxswing verify --out runs/verify --trials 40 --jobs 4
 ```
 
-Three checks, about 10 minutes on 4 cores. On a stochastic-volatility martingale, with the optimiser
+Three checks, under 10 minutes on 4 cores. On a stochastic-volatility martingale, with the optimiser
 allowed to tune the full geometry, the release gates must fail. On data with planted trend
 persistence (the positive control, at twice the base strength; at the base strength the fixed-prior
 baseline does not see it) the ablation must run through every module and the OOS result must be
 clearly better than on the null. The same baseline is then sized on each broker preset at today's index level. The
 latest report is in `docs/pipeline_verification/`. It is labelled synthetic throughout and the
 tearsheet refuses to issue a release verdict for synthetic data.
+
+```bash
+ndxswing ablation-oc --out runs/verify/ablation_oc --edge 0 --seeds 100:140 --trials 40 --jobs 4
+```
+
+runs independent histories through the whole research path (full feature set, sequential ablation
+with tuning, release battery on what the ablation retains): `--edge 0` measures the false-pass rate
+under selection, `--edge 2` the power. It takes eight to ten minutes per history on one core, keeps
+one result file per history so an interrupted batch resumes, and `verify` summarises whatever it
+finds in `<out>/ablation_oc`.
 
 ## Where the specification needed a decision
 
@@ -387,15 +397,21 @@ tearsheet refuses to issue a release verdict for synthetic data.
    average exposure was 0.23×, 0.32× and 0.44× of equity at 0.25%, 0.35% and 0.50% risk, the same
    as the leveraged preset. The ETF pays no funding either, but a EUR 1 ticket on each leg is
    EUR 2 a round trip, 0.16R on its own.
-7. **What the locked gates do, measured on synthetic histories.** Fixed-prior baseline on the
-   leveraged Capital.com preset, 40 independent histories each, complete battery: with no edge,
-   0 of 40 pass (which bounds the false-positive rate below about 7.5% at 95% confidence); with
-   the planted edge (median OOS Sharpe 0.93), 24 of 40 pass. So a real edge of that size has
-   somewhat better than even odds of being confirmed on ten OOS years at about 18 trades a year,
-   and a weaker one will usually be rejected. The gates that reject it are the profitable-folds
-   share and the Sharpe floor, not the overfitting tests. The fold and trade thresholds were set
-   after seeing an earlier control land at 69% and 189, so they are fitted to this trade
-   frequency; the no-edge result is what shows they did not open the door.
+7. **What the release gates do, measured on synthetic histories.** Leveraged Capital.com preset,
+   revised battery, complete research path. All counts are histories that pass every gate.
+
+   | | No edge | Planted edge (median OOS Sharpe about 0.95) |
+   |---|---:|---:|
+   | Fixed priors, nothing selected | 0 of 40 | 27 of 40 |
+   | Full ablation with tuning | 0 of 40 | 15 of 20 (fresh seeds; 13 of 20 for their fixed-prior baselines) |
+
+   With no edge the ablation still lifts the OOS Sharpe by 0.28 on average, which is the selection
+   bias the DSR is there for; the best no-edge history reached a Sharpe of 0.56 and a DSR of 0.88
+   and failed three gates. Zero of 40 bounds the false-pass rate below about 7.5% at 95%
+   confidence. With the planted edge the remaining rejections come from the Sharpe floor, the DSR
+   and P(OOS loss): 15 of the 16 histories whose retained configuration had a Sharpe above 0.80
+   passed. Twenty histories put the power somewhere between 51% and 91%. An edge weaker than
+   this one will usually be rejected on ten OOS years at about 20 trades a year.
 8. **Synthetic numbers before this version were flattered.** The synthetic bars used a coarse
    intrabar path (8 steps an hour). The simulator fills stops and triggers at the level a bar
    touches, which is right for a continuous path but too generous when the path jumps past the
@@ -403,6 +419,18 @@ tearsheet refuses to issue a release verdict for synthetic data.
    generator now uses 256 steps, a test guards it, and every figure in this README and in
    `docs/pipeline_verification/` comes from the corrected bars. Real bars are built from ticks
    and are not affected; the no-edge data failed the gates before and after.
+
+9. **What the audit of the first real-data run found.** The run failed because its entries have
+   no timing value, not because of the validator. The audit replayed every entry order on the
+   1-minute tape and found no fill, stop or target credited in the wrong order. It did find two
+   latent simulator defects (a triggered stop-limit forgot its state on its second bar; a pullback
+   fill credited the bar's earlier high), neither of which moved a single trade in that run, and
+   three miscalibrated gates, described under "Release gates". The stop-limit's EUR 104 gross
+   advantage over the plain stop decomposed into EUR 62 from ten trades only one variant happened
+   to take (path luck), EUR 33 of price improvement on 56 fills (about 0.036R a trade across the
+   book, the only systematic part) and EUR 7 from skipping runaway opens. The ARMA forecast was
+   positive on every test point, so its sign test is 0/0; Z is drift over volatility and never
+   fell below −0.35, so that gate could not have passed a short.
 
 On the suggestion to score parameters on train plus validation: I dropped it in favour of the
 longer validation window. One nuance for the record: in this implementation the statistical models
@@ -427,7 +455,8 @@ Sources for the broker and venue facts:
 - Live execution gateway, bracket reconciliation, heartbeat and kill-switch (backlog item 5). Given finding 2
   it should target the chosen micro-lot CFD or ETF broker, not IBUST100.
 - ML meta-labelling challenger (backlog item 4, optional and only after the econometric ablation).
-- Any real-data result. `ingest ibkr` is written against the documented API but has not been run
-  against a live gateway; `ingest fred` is tested against a mocked response only.
+- A result on the planned 2012–2026 vendor data with bid/ask history (the one real-data run so far uses a
+  public futures tape). `ingest ibkr` is written against the documented API but has not been run
+  against a live gateway.
 - EGARCH and Generalised Hyperbolic tails. The exact forecaster covers GARCH and GJR-GARCH; tail
   models cover Student-t / q-Gaussian, tempered Lévy, block bootstrap and POT-EVT.
