@@ -11,6 +11,10 @@
 > is worth anything as volatility-managed passive exposure in a EUR 5,000 German retail account:
 > under the pre-declared rule it is not, and the idea is archived
 > ([`research_runs/2026-11-23_phase0_volmanaged_ndx/`](research_runs/2026-11-23_phase0_volmanaged_ndx/README.md)).
+> An intraday noise-area momentum rule ("Bot A") was the first to show an edge that held on unseen
+> data (2021–2025: net +0.05 to +0.07R a trade, Sharpe 0.7 to 1.05), but it does not pass the release
+> gates: the DSR gate with 22 prior trials everywhere, and Sharpe and profit factor at Capital.com's
+> costs ([`research_runs/2026-11-24_bot_a_oos_2021_2025/`](research_runs/2026-11-24_bot_a_oos_2021_2025/README.md)).
 > The release battery was revised once after that run was audited (see "Release gates"); the run
 > fails under the old and the new battery alike.
 > Everything under `docs/pipeline_verification/` is synthetic and tests the machinery only.
@@ -42,7 +46,7 @@ pip install -e ".[dev]"
 pytest
 ```
 
-160 tests, about a minute. They cover hand-computed fills and P&L for every branch of the order
+172 tests, about a minute. They cover hand-computed fills and P&L for every branch of the order
 state machine, Monte Carlo / brute-force references for the statistics, and look-ahead checks that
 recompute features and signals on truncated history.
 

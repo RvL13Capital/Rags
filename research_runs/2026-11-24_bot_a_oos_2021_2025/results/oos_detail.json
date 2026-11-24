@@ -1,0 +1,2623 @@
+{
+ "vwap_capital_25bp_schedII": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "FAIL",
+    "value": 0.7505146036268748
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.3489101608975975
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "FAIL",
+    "value": 1.1521529360737024
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 320.76627763071156
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.02840723404029244
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.06796672110822033
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "FAIL",
+    "value": 0.025
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 865
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.02840723404029244
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0
+   }
+  },
+  "row": {
+   "anchor": "VWAP",
+   "account": "Track 1: Capital.com, 0.25%",
+   "schedule": "II",
+   "trades": 865,
+   "win_rate": 0.3895953757225434,
+   "payoff": 1.813653466040889,
+   "gross_exp_r": 0.08365205422522863,
+   "net_exp_r": 0.04631824721924553,
+   "t": 1.600762620134426,
+   "long_n": 438,
+   "long_net_r": 0.10150709667416057,
+   "short_n": 427,
+   "short_net_r": -0.01029232903661578,
+   "net_eur": 511.5764373798632,
+   "mean_stop_pct": 0.6540078076525053,
+   "mean_leverage": 0.45395277207753737,
+   "share_leverage_capped": 0.0,
+   "sharpe": 0.7505146036268748,
+   "profit_factor": 1.1521529360737024,
+   "cagr": 0.021902809995373307,
+   "max_dd": 0.02840723404029244,
+   "mc_p_dd20": 0.0,
+   "dsr": 0.3489101608975975,
+   "psr_zero": 0.9488011582215078,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 320.76627763071156,
+   "ceiling_max_dd": 0.06796672110822033,
+   "ceiling_mc_p_dd20": 0.025,
+   "burn_in_max_dd": 0.02840723404029244,
+   "burn_in_mc_p_dd20": 0.0,
+   "final_equity": 5511.576437379859,
+   "in_sample_sharpe": -0.46606962080200404,
+   "in_sample_net_r": -0.01795191131973051,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 4,
+   "failed": "OOS net Sharpe; Deflated Sharpe Ratio (zero-mean null, N_eff); OOS net profit factor; Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  },
+  "breaker_events": [],
+  "breakdown": [
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2021",
+    "trades": 186,
+    "win_rate": 0.41397849462365593,
+    "payoff": 1.7947053894357519,
+    "gross_exp_r": 0.11764342284147714,
+    "net_exp_r": 0.07311663329016409,
+    "t": 1.1972629793493714,
+    "long_n": 104,
+    "long_net_r": 0.15476671147572485,
+    "short_n": 82,
+    "short_net_r": -0.03043956343298608,
+    "net_eur": 169.80932640106806,
+    "mean_stop_pct": 0.5548734543645629,
+    "mean_leverage": 0.5179556055039994,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.1823939321675363
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2022",
+    "trades": 214,
+    "win_rate": 0.35046728971962615,
+    "payoff": 2.0759425723056095,
+    "gross_exp_r": 0.06653501983176059,
+    "net_exp_r": 0.035788703896204796,
+    "t": 0.620520335381362,
+    "long_n": 90,
+    "long_net_r": 0.061530851607280376,
+    "short_n": 124,
+    "short_net_r": 0.01710488700913383,
+    "net_eur": 95.18564197673258,
+    "mean_stop_pct": 0.9173996797048188,
+    "mean_leverage": 0.2957372274039867,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.6031965605331244
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2023",
+    "trades": 186,
+    "win_rate": 0.3978494623655914,
+    "payoff": 1.6713279287019707,
+    "gross_exp_r": 0.07659611090621478,
+    "net_exp_r": 0.032709671837261645,
+    "t": 0.5124703479041882,
+    "long_n": 105,
+    "long_net_r": 0.12418087153754587,
+    "short_n": 81,
+    "short_net_r": -0.0858641055519956,
+    "net_eur": 78.06464149054746,
+    "mean_stop_pct": 0.5462863138955302,
+    "mean_leverage": 0.49715559267383314,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.5217940855802744
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2024",
+    "trades": 181,
+    "win_rate": 0.40331491712707185,
+    "payoff": 1.867905395199169,
+    "gross_exp_r": 0.1156972693146868,
+    "net_exp_r": 0.07900443013689559,
+    "t": 1.1616502439429026,
+    "long_n": 89,
+    "long_net_r": 0.11094630932742214,
+    "short_n": 92,
+    "short_net_r": 0.04810413396345141,
+    "net_eur": 190.87264973856253,
+    "mean_stop_pct": 0.5109581811675632,
+    "mean_leverage": 0.5392105732356852,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.1767781737794967
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2025",
+    "trades": 98,
+    "win_rate": 0.3877551020408163,
+    "payoff": 1.486396485346018,
+    "gross_exp_r": 0.01072217997752026,
+    "net_exp_r": -0.01609176936346672,
+    "t": -0.21327927561731064,
+    "long_n": 50,
+    "long_net_r": -0.0017323867286236,
+    "short_n": 48,
+    "short_net_r": -0.03104945960809502,
+    "net_eur": -22.355822227047582,
+    "mean_stop_pct": 0.7356538211722408,
+    "mean_leverage": 0.4385059649579674,
+    "share_leverage_capped": 0.0,
+    "sharpe": -0.2894438869737853
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 649,
+    "win_rate": 0.386748844375963,
+    "payoff": 1.849387542379793,
+    "gross_exp_r": 0.08855730831104655,
+    "net_exp_r": 0.0491547384393051,
+    "t": 1.4686346582214647,
+    "long_n": 327,
+    "long_net_r": 0.1319306919323879,
+    "short_n": 322,
+    "short_net_r": -0.034906555946527404,
+    "net_eur": 403.17551640204545,
+    "mean_stop_pct": 0.6640491772223936,
+    "mean_leverage": 0.4425659267134385,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.7994123631321429
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 216,
+    "win_rate": 0.39814814814814814,
+    "payoff": 1.7092315489702807,
+    "gross_exp_r": 0.06891358245811835,
+    "net_exp_r": 0.03779564165527026,
+    "t": 0.6550870048126641,
+    "long_n": 111,
+    "long_net_r": 0.011880829562085474,
+    "short_n": 105,
+    "short_net_r": 0.06519130015377989,
+    "net_eur": 108.40092097781769,
+    "mean_stop_pct": 0.623837211120757,
+    "mean_leverage": 0.48816602504651985,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.606353671592524
+   }
+  ]
+ },
+ "vwap_capital_25bp_schedI": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 0.9591732552995584
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.526462968072906
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "FAIL",
+    "value": 1.1998145250006138
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 542.253090479916
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.026119499043038452
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0048
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.06347999932250004
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "FAIL",
+    "value": 0.0263
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 865
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.026119499043038452
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0048
+   }
+  },
+  "row": {
+   "anchor": "VWAP",
+   "account": "Track 1: Capital.com, 0.25%",
+   "schedule": "I",
+   "trades": 865,
+   "win_rate": 0.4,
+   "payoff": 1.809174031440207,
+   "gross_exp_r": 0.08365205422522863,
+   "net_exp_r": 0.058973817269036444,
+   "t": 2.0383476693418423,
+   "long_n": 438,
+   "long_net_r": 0.11449014139644302,
+   "short_n": 427,
+   "short_net_r": 0.0020273302249987734,
+   "net_eur": 664.9456693942732,
+   "mean_stop_pct": 0.6540078076525053,
+   "mean_leverage": 0.45397270325566985,
+   "share_leverage_capped": 0.0,
+   "sharpe": 0.9591732552995584,
+   "profit_factor": 1.1998145250006138,
+   "cagr": 0.028160230224427485,
+   "max_dd": 0.026119499043038452,
+   "mc_p_dd20": 0.0048,
+   "dsr": 0.526462968072906,
+   "psr_zero": 0.9823405464573614,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 542.253090479916,
+   "ceiling_max_dd": 0.06347999932250004,
+   "ceiling_mc_p_dd20": 0.0263,
+   "burn_in_max_dd": 0.026119499043038452,
+   "burn_in_mc_p_dd20": 0.0048,
+   "final_equity": 5664.945669394268,
+   "in_sample_sharpe": 0.9036350338573323,
+   "in_sample_net_r": 0.06858119200934197,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 3,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); OOS net profit factor; Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  },
+  "breaker_events": [],
+  "breakdown": [
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "2021",
+    "trades": 186,
+    "win_rate": 0.41935483870967744,
+    "payoff": 1.8597721999735637,
+    "gross_exp_r": 0.11764342284147714,
+    "net_exp_r": 0.09022627491930878,
+    "t": 1.476784667202982,
+    "long_n": 104,
+    "long_net_r": 0.17221421760888742,
+    "short_n": 82,
+    "short_net_r": -0.013758432882108068,
+    "net_eur": 211.49655390320595,
+    "mean_stop_pct": 0.5548734543645629,
+    "mean_leverage": 0.5179136720231996,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.463842649554885
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "2022",
+    "trades": 214,
+    "win_rate": 0.3691588785046729,
+    "payoff": 1.997728008940708,
+    "gross_exp_r": 0.06653501983176059,
+    "net_exp_r": 0.04890387331622465,
+    "t": 0.8484143315772745,
+    "long_n": 90,
+    "long_net_r": 0.0749321569532275,
+    "short_n": 124,
+    "short_net_r": 0.030012377128077403,
+    "net_eur": 133.94245571913612,
+    "mean_stop_pct": 0.9173996797048188,
+    "mean_leverage": 0.29584206889476333,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.8343935986231859
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "2023",
+    "trades": 186,
+    "win_rate": 0.40860215053763443,
+    "payoff": 1.6851061630379736,
+    "gross_exp_r": 0.07659611090621478,
+    "net_exp_r": 0.049820209424565075,
+    "t": 0.780793642016126,
+    "long_n": 105,
+    "long_net_r": 0.14103002596110759,
+    "short_n": 81,
+    "short_net_r": -0.06841473793761961,
+    "net_eur": 122.37126837099603,
+    "mean_stop_pct": 0.5462863138955302,
+    "mean_leverage": 0.49723399299199295,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.795581752522687
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "2024",
+    "trades": 181,
+    "win_rate": 0.4143646408839779,
+    "payoff": 1.8282769797363216,
+    "gross_exp_r": 0.1156972693146868,
+    "net_exp_r": 0.0868986614752691,
+    "t": 1.278063272953089,
+    "long_n": 89,
+    "long_net_r": 0.11904054768440614,
+    "short_n": 92,
+    "short_net_r": 0.05580488025121264,
+    "net_eur": 214.9179055629157,
+    "mean_stop_pct": 0.5109581811675632,
+    "mean_leverage": 0.5393689140479209,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.2932050742844592
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "2025",
+    "trades": 98,
+    "win_rate": 0.3877551020408163,
+    "payoff": 1.5061613497560553,
+    "gross_exp_r": 0.01072217997752026,
+    "net_exp_r": -0.012554905785100007,
+    "t": -0.16638190652727589,
+    "long_n": 50,
+    "long_net_r": 0.0017949540939766263,
+    "short_n": 48,
+    "short_net_r": -0.027502676492471456,
+    "net_eur": -17.782514161980707,
+    "mean_stop_pct": 0.7356538211722408,
+    "mean_leverage": 0.4380912901752609,
+    "share_leverage_capped": 0.0,
+    "sharpe": -0.22204415333997904
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 649,
+    "win_rate": 0.40061633281972264,
+    "payoff": 1.8325487234479747,
+    "gross_exp_r": 0.08855730831104655,
+    "net_exp_r": 0.06434199852141653,
+    "t": 1.922725154736185,
+    "long_n": 327,
+    "long_net_r": 0.1475254302888182,
+    "short_n": 322,
+    "short_net_r": -0.020133101441131163,
+    "net_eur": 538.4342632573115,
+    "mean_stop_pct": 0.6640491772223936,
+    "mean_leverage": 0.4426457901129093,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.0508534065156694
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "I",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 216,
+    "win_rate": 0.39814814814814814,
+    "payoff": 1.7380995933905872,
+    "gross_exp_r": 0.06891358245811835,
+    "net_exp_r": 0.04284442082091295,
+    "t": 0.742642753925746,
+    "long_n": 111,
+    "long_net_r": 0.01716996601079713,
+    "short_n": 105,
+    "short_net_r": 0.069985987334464,
+    "net_eur": 126.5114061369616,
+    "mean_stop_pct": 0.623837211120757,
+    "mean_leverage": 0.48800588209664925,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.6888803063213104
+   }
+  ]
+ },
+ "vwap_pepperstone_50bp_schedII": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 1.047918665119012
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.6037575468423007
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "PASS",
+    "value": 1.2291800877285401
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 975.0108277607305
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.039904770863341765
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "FAIL",
+    "value": 0.0298
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.04914991418566528
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.006
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 820
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.016805023887236814
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.001
+   }
+  },
+  "row": {
+   "anchor": "VWAP",
+   "account": "Track 2: Pepperstone, 0.50%",
+   "schedule": "II",
+   "trades": 820,
+   "win_rate": 0.38902439024390245,
+   "payoff": 1.923825436248872,
+   "gross_exp_r": 0.08917554912505651,
+   "net_exp_r": 0.06492182898355059,
+   "t": 2.153431319879249,
+   "long_n": 419,
+   "long_net_r": 0.12107345227124269,
+   "short_n": 401,
+   "short_net_r": 0.0062496839522713015,
+   "net_eur": 1172.537566902271,
+   "mean_stop_pct": 0.6015086257954918,
+   "mean_leverage": 0.7311226400510679,
+   "share_leverage_capped": 0.06829268292682927,
+   "sharpe": 1.047918665119012,
+   "profit_factor": 1.2291800877285401,
+   "cagr": 0.047972501134822876,
+   "max_dd": 0.039904770863341765,
+   "mc_p_dd20": 0.0298,
+   "dsr": 0.6037575468423007,
+   "psr_zero": 0.9897422539835764,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 975.0108277607305,
+   "ceiling_max_dd": 0.04914991418566528,
+   "ceiling_mc_p_dd20": 0.006,
+   "burn_in_max_dd": 0.016805023887236814,
+   "burn_in_mc_p_dd20": 0.001,
+   "final_equity": 6172.537566902278,
+   "in_sample_sharpe": -0.28939020986116043,
+   "in_sample_net_r": -0.07556795765403303,
+   "skipped_min_lot": 148,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 2,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); Monte Carlo P(DD >= 20%)"
+  },
+  "breaker_events": [],
+  "breakdown": [
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2021",
+    "trades": 184,
+    "win_rate": 0.41304347826086957,
+    "payoff": 1.91830494017028,
+    "gross_exp_r": 0.12206766714369191,
+    "net_exp_r": 0.09313346059494818,
+    "t": 1.5031712404773765,
+    "long_n": 103,
+    "long_net_r": 0.1725783685838401,
+    "short_n": 81,
+    "short_net_r": -0.007889076724260067,
+    "net_eur": 278.4128318625196,
+    "mean_stop_pct": 0.5439388005439802,
+    "mean_leverage": 0.8104963349116742,
+    "share_leverage_capped": 0.13043478260869565,
+    "sharpe": 1.2721195024998142
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2022",
+    "trades": 181,
+    "win_rate": 0.34806629834254144,
+    "payoff": 2.2303504111814307,
+    "gross_exp_r": 0.0771419890647798,
+    "net_exp_r": 0.05685169225246154,
+    "t": 0.8780260583613196,
+    "long_n": 78,
+    "long_net_r": 0.06094780538761288,
+    "short_n": 103,
+    "short_net_r": 0.05374978133457993,
+    "net_eur": 246.85563660753576,
+    "mean_stop_pct": 0.8081858186339594,
+    "mean_leverage": 0.460579266811629,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.066542921951922
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2023",
+    "trades": 184,
+    "win_rate": 0.3967391304347826,
+    "payoff": 1.783242798687673,
+    "gross_exp_r": 0.08048342647004705,
+    "net_exp_r": 0.05226010478438969,
+    "t": 0.8118714086076882,
+    "long_n": 104,
+    "long_net_r": 0.15254147233814042,
+    "short_n": 80,
+    "short_net_r": -0.07810567303548621,
+    "net_eur": 226.67725396561812,
+    "mean_stop_pct": 0.5371666585417131,
+    "mean_leverage": 0.7907897723920544,
+    "share_leverage_capped": 0.03260869565217391,
+    "sharpe": 0.8677672615409698
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2024",
+    "trades": 179,
+    "win_rate": 0.4022346368715084,
+    "payoff": 1.9382833638106085,
+    "gross_exp_r": 0.11318548848477812,
+    "net_exp_r": 0.09021085762241492,
+    "t": 1.3086498668801474,
+    "long_n": 88,
+    "long_net_r": 0.12191746196651264,
+    "short_n": 91,
+    "short_net_r": 0.05954952594900175,
+    "net_eur": 405.1498402952025,
+    "mean_stop_pct": 0.5000538987230952,
+    "mean_leverage": 0.8700922171356469,
+    "share_leverage_capped": 0.08379888268156424,
+    "sharpe": 1.3765755918664497
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2025",
+    "trades": 92,
+    "win_rate": 0.3804347826086957,
+    "payoff": 1.6315390915461794,
+    "gross_exp_r": 0.017735289109977747,
+    "net_exp_r": 0.0004954774413641538,
+    "t": 0.006230672576192192,
+    "long_n": 46,
+    "long_net_r": 0.03493969437090522,
+    "short_n": 46,
+    "short_net_r": -0.033948739488176886,
+    "net_eur": 15.44200417139508,
+    "mean_stop_pct": 0.6361129090908145,
+    "mean_leverage": 0.7149192058456955,
+    "share_leverage_capped": 0.11956521739130435,
+    "sharpe": 0.145059532158302
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 611,
+    "win_rate": 0.3878887070376432,
+    "payoff": 1.9552118764617028,
+    "gross_exp_r": 0.09505912486695058,
+    "net_exp_r": 0.06921799492038942,
+    "t": 1.9776376170601038,
+    "long_n": 313,
+    "long_net_r": 0.15121292792650828,
+    "short_n": 298,
+    "short_net_r": -0.016904199814225373,
+    "net_eur": 862.8273179244343,
+    "mean_stop_pct": 0.6115806389018398,
+    "mean_leverage": 0.7110872247520867,
+    "share_leverage_capped": 0.057283142389525366,
+    "sharpe": 1.0758787494741766
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 209,
+    "win_rate": 0.3923444976076555,
+    "payoff": 1.8326924526406114,
+    "gross_exp_r": 0.07197523918105049,
+    "net_exp_r": 0.05236222425910783,
+    "t": 0.8803833581984672,
+    "long_n": 106,
+    "long_net_r": 0.03207669868541124,
+    "short_n": 103,
+    "short_net_r": 0.07323859038349469,
+    "net_eur": 309.71024897783684,
+    "mean_stop_pct": 0.5720636496807617,
+    "mean_leverage": 0.7896950742504818,
+    "share_leverage_capped": 0.10047846889952153,
+    "sharpe": 0.9685393032647752
+   }
+  ]
+ },
+ "vwap_pepperstone_50bp_schedI": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 1.1469599819661263
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.6862164566909752
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "PASS",
+    "value": 1.2559540641238094
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 1166.9886277147225
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.036134310787707125
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "FAIL",
+    "value": 0.0255
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.05145493048487482
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0045
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 822
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.017245047222568144
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0012
+   }
+  },
+  "row": {
+   "anchor": "VWAP",
+   "account": "Track 2: Pepperstone, 0.50%",
+   "schedule": "I",
+   "trades": 822,
+   "win_rate": 0.3978102189781022,
+   "payoff": 1.901614181506339,
+   "gross_exp_r": 0.08774868017503039,
+   "net_exp_r": 0.07264524772033558,
+   "t": 2.413328406064584,
+   "long_n": 421,
+   "long_net_r": 0.12673229493456048,
+   "short_n": 401,
+   "short_net_r": 0.015860592166249105,
+   "net_eur": 1306.7607743159797,
+   "mean_stop_pct": 0.6029197187086807,
+   "mean_leverage": 0.7302552131691493,
+   "share_leverage_capped": 0.0681265206812652,
+   "sharpe": 1.1469599819661263,
+   "profit_factor": 1.2559540641238094,
+   "cagr": 0.0529987513575465,
+   "max_dd": 0.036134310787707125,
+   "mc_p_dd20": 0.0255,
+   "dsr": 0.6862164566909752,
+   "psr_zero": 0.9946458573672302,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 1166.9886277147225,
+   "ceiling_max_dd": 0.05145493048487482,
+   "ceiling_mc_p_dd20": 0.0045,
+   "burn_in_max_dd": 0.017245047222568144,
+   "burn_in_mc_p_dd20": 0.0012,
+   "final_equity": 6306.760774315975,
+   "in_sample_sharpe": 1.0192755555947992,
+   "in_sample_net_r": 0.08415844162488834,
+   "skipped_min_lot": 139,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 2,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); Monte Carlo P(DD >= 20%)"
+  },
+  "breaker_events": [],
+  "breakdown": [
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "2021",
+    "trades": 184,
+    "win_rate": 0.41847826086956524,
+    "payoff": 1.944716767535755,
+    "gross_exp_r": 0.12028033210614236,
+    "net_exp_r": 0.10349824570704028,
+    "t": 1.6723426312932177,
+    "long_n": 103,
+    "long_net_r": 0.18178010708228176,
+    "short_n": 81,
+    "short_net_r": 0.003954644205190004,
+    "net_eur": 302.0194465826713,
+    "mean_stop_pct": 0.5441228471356985,
+    "mean_leverage": 0.8112444104968976,
+    "share_leverage_capped": 0.13043478260869565,
+    "sharpe": 1.3741606613288002
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "2022",
+    "trades": 183,
+    "win_rate": 0.3551912568306011,
+    "payoff": 2.191561865326463,
+    "gross_exp_r": 0.0710899024461098,
+    "net_exp_r": 0.06081525482744378,
+    "t": 0.9471247330987217,
+    "long_n": 80,
+    "long_net_r": 0.05721006798024626,
+    "short_n": 103,
+    "short_net_r": 0.06361539995148069,
+    "net_eur": 256.9248135326787,
+    "mean_stop_pct": 0.8119801708626503,
+    "mean_leverage": 0.4588941123993541,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.1003586737867554
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "2023",
+    "trades": 184,
+    "win_rate": 0.41304347826086957,
+    "payoff": 1.7309202356379325,
+    "gross_exp_r": 0.08048342647004705,
+    "net_exp_r": 0.06438714105105227,
+    "t": 1.000443112029266,
+    "long_n": 104,
+    "long_net_r": 0.16449050816184396,
+    "short_n": 80,
+    "short_net_r": -0.06574723619297689,
+    "net_eur": 288.4090908957472,
+    "mean_stop_pct": 0.5371666585417131,
+    "mean_leverage": 0.7954903963577017,
+    "share_leverage_capped": 0.03260869565217391,
+    "sharpe": 1.0840528610678892
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "2024",
+    "trades": 179,
+    "win_rate": 0.40782122905027934,
+    "payoff": 1.926237847467609,
+    "gross_exp_r": 0.11318548848477812,
+    "net_exp_r": 0.09572489094573418,
+    "t": 1.3888278246402408,
+    "long_n": 88,
+    "long_net_r": 0.12757997727253342,
+    "short_n": 91,
+    "short_net_r": 0.06491997230003825,
+    "net_eur": 415.6016913582565,
+    "mean_stop_pct": 0.5000538987230952,
+    "mean_leverage": 0.8647907841693807,
+    "share_leverage_capped": 0.08379888268156424,
+    "sharpe": 1.4075501510163577
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "2025",
+    "trades": 92,
+    "win_rate": 0.391304347826087,
+    "payoff": 1.5905409989998822,
+    "gross_exp_r": 0.02086118412437763,
+    "net_exp_r": 0.0060819059773716015,
+    "t": 0.07596796654694328,
+    "long_n": 46,
+    "long_net_r": 0.0373932358856637,
+    "short_n": 46,
+    "short_net_r": -0.025229423930920463,
+    "net_eur": 43.805731946626004,
+    "mean_stop_pct": 0.6363121803760072,
+    "mean_leverage": 0.7158196503086252,
+    "share_leverage_capped": 0.11956521739130435,
+    "sharpe": 0.34125806710906526
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 613,
+    "win_rate": 0.39804241435562804,
+    "payoff": 1.9277010295980046,
+    "gross_exp_r": 0.09265743519365519,
+    "net_exp_r": 0.07788862792268895,
+    "t": 2.231667716255532,
+    "long_n": 315,
+    "long_net_r": 0.15733221772725284,
+    "short_n": 298,
+    "short_net_r": -0.006086978749920513,
+    "net_eur": 954.3334807918345,
+    "mean_stop_pct": 0.6134100702072082,
+    "mean_leverage": 0.7118779617732282,
+    "share_leverage_capped": 0.057096247960848286,
+    "sharpe": 1.177894553506083
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "I",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 209,
+    "win_rate": 0.39712918660287083,
+    "payoff": 1.8247707313183943,
+    "gross_exp_r": 0.07335123124480546,
+    "net_exp_r": 0.05726633832300249,
+    "t": 0.9607500767462215,
+    "long_n": 106,
+    "long_net_r": 0.03579856210721997,
+    "short_n": 103,
+    "short_net_r": 0.07935938957419614,
+    "net_eur": 352.4272935241452,
+    "mean_stop_pct": 0.5721513671842915,
+    "mean_leverage": 0.7841559553016837,
+    "share_leverage_capped": 0.10047846889952153,
+    "sharpe": 1.0607121019817196
+   }
+  ]
+ },
+ "vwap_capital_50bp_schedII": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "FAIL",
+    "value": 0.6845949251835315
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.29799711960200015
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "FAIL",
+    "value": 1.1331441807351277
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 578.2399542849043
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.051267837751910794
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0002
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.06796672110822033
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "FAIL",
+    "value": 0.025
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 865
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.02840723404029244
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0
+   }
+  },
+  "row": {
+   "anchor": "VWAP",
+   "account": "Track 2: Capital.com, 0.50%",
+   "schedule": "II",
+   "trades": 865,
+   "win_rate": 0.3895953757225434,
+   "payoff": 1.8136534660408887,
+   "gross_exp_r": 0.08365205422522863,
+   "net_exp_r": 0.04631824721924551,
+   "t": 1.6007626201344254,
+   "long_n": 438,
+   "long_net_r": 0.10150709667416054,
+   "short_n": 427,
+   "short_net_r": -0.010292329036615774,
+   "net_eur": 911.3192345470852,
+   "mean_stop_pct": 0.6540078076525053,
+   "mean_leverage": 0.8619704979363811,
+   "share_leverage_capped": 0.07976878612716763,
+   "sharpe": 0.6845949251835315,
+   "profit_factor": 1.1331441807351277,
+   "cagr": 0.037941841396722964,
+   "max_dd": 0.051267837751910794,
+   "mc_p_dd20": 0.0002,
+   "dsr": 0.29799711960200015,
+   "psr_zero": 0.9312970693311038,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 578.2399542849043,
+   "ceiling_max_dd": 0.06796672110822033,
+   "ceiling_mc_p_dd20": 0.025,
+   "burn_in_max_dd": 0.02840723404029244,
+   "burn_in_mc_p_dd20": 0.0,
+   "final_equity": 5911.319234547086,
+   "in_sample_sharpe": -0.5976940343102871,
+   "in_sample_net_r": -0.1026675912418175,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 4,
+   "failed": "OOS net Sharpe; Deflated Sharpe Ratio (zero-mean null, N_eff); OOS net profit factor; Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  },
+  "breaker_events": [
+   [
+    "2021-02-23",
+    "intraday_halt",
+    4935.73
+   ],
+   [
+    "2022-12-01",
+    "intraday_halt",
+    5511.47
+   ],
+   [
+    "2023-03-01",
+    "intraday_halt",
+    5489.89
+   ],
+   [
+    "2023-03-07",
+    "intraday_halt",
+    5443.24
+   ],
+   [
+    "2023-12-08",
+    "intraday_halt",
+    5662.06
+   ]
+  ],
+  "breakdown": [
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2021",
+    "trades": 186,
+    "win_rate": 0.41397849462365593,
+    "payoff": 1.7947053894357519,
+    "gross_exp_r": 0.11764342284147714,
+    "net_exp_r": 0.07311663329016409,
+    "t": 1.1972629793493714,
+    "long_n": 104,
+    "long_net_r": 0.15476671147572482,
+    "short_n": 82,
+    "short_net_r": -0.03043956343298608,
+    "net_eur": 286.74161625728857,
+    "mean_stop_pct": 0.5548734543645629,
+    "mean_leverage": 0.9916732303827729,
+    "share_leverage_capped": 0.13440860215053763,
+    "sharpe": 1.0512948377214848
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2022",
+    "trades": 214,
+    "win_rate": 0.35046728971962615,
+    "payoff": 2.0759425723056095,
+    "gross_exp_r": 0.06653501983176059,
+    "net_exp_r": 0.03578870389620477,
+    "t": 0.6205203353813616,
+    "long_n": 90,
+    "long_net_r": 0.06153085160728034,
+    "short_n": 124,
+    "short_net_r": 0.01710488700913383,
+    "net_eur": 194.15150669433302,
+    "mean_stop_pct": 0.9173996797048188,
+    "mean_leverage": 0.5940001687974975,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.6096458247890082
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2023",
+    "trades": 186,
+    "win_rate": 0.3978494623655914,
+    "payoff": 1.6713279287019707,
+    "gross_exp_r": 0.07659611090621478,
+    "net_exp_r": 0.03270967183726165,
+    "t": 0.5124703479041882,
+    "long_n": 105,
+    "long_net_r": 0.12418087153754583,
+    "short_n": 81,
+    "short_net_r": -0.08586410555199565,
+    "net_eur": 151.59589792982155,
+    "mean_stop_pct": 0.5462863138955302,
+    "mean_leverage": 0.9611232523783558,
+    "share_leverage_capped": 0.03763440860215054,
+    "sharpe": 0.5053040497918253
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2024",
+    "trades": 181,
+    "win_rate": 0.40331491712707185,
+    "payoff": 1.867905395199169,
+    "gross_exp_r": 0.1156972693146868,
+    "net_exp_r": 0.07900443013689559,
+    "t": 1.1616502439429026,
+    "long_n": 89,
+    "long_net_r": 0.11094630932742214,
+    "short_n": 92,
+    "short_net_r": 0.04810413396345141,
+    "net_eur": 326.30216336872513,
+    "mean_stop_pct": 0.5109581811675632,
+    "mean_leverage": 0.9483130715000444,
+    "share_leverage_capped": 0.143646408839779,
+    "sharpe": 1.0705278077084437
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2025",
+    "trades": 98,
+    "win_rate": 0.3877551020408163,
+    "payoff": 1.486396485346018,
+    "gross_exp_r": 0.01072217997752026,
+    "net_exp_r": -0.016091769363466735,
+    "t": -0.2132792756173108,
+    "long_n": 50,
+    "long_net_r": -0.0017323867286235955,
+    "short_n": 48,
+    "short_net_r": -0.031049459608094982,
+    "net_eur": -47.471949703083055,
+    "mean_stop_pct": 0.7356538211722408,
+    "mean_leverage": 0.853302376094155,
+    "share_leverage_capped": 0.11224489795918367,
+    "sharpe": -0.27390634224747873
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 649,
+    "win_rate": 0.386748844375963,
+    "payoff": 1.849387542379793,
+    "gross_exp_r": 0.08855730831104655,
+    "net_exp_r": 0.04915473843930508,
+    "t": 1.4686346582214644,
+    "long_n": 327,
+    "long_net_r": 0.13193069193238785,
+    "short_n": 322,
+    "short_net_r": -0.0349065559465274,
+    "net_eur": 709.5617847906535,
+    "mean_stop_pct": 0.6640491772223936,
+    "mean_leverage": 0.8418320751451615,
+    "share_leverage_capped": 0.06317411402157165,
+    "sharpe": 0.725606942837296
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 216,
+    "win_rate": 0.39814814814814814,
+    "payoff": 1.7092315489702805,
+    "gross_exp_r": 0.06891358245811835,
+    "net_exp_r": 0.03779564165527024,
+    "t": 0.6550870048126637,
+    "long_n": 111,
+    "long_net_r": 0.011880829562085481,
+    "short_n": 105,
+    "short_net_r": 0.06519130015377989,
+    "net_eur": 201.75744975643178,
+    "mean_stop_pct": 0.623837211120757,
+    "mean_leverage": 0.9224789997488877,
+    "share_leverage_capped": 0.12962962962962962,
+    "sharpe": 0.5637845692884517
+   }
+  ]
+ },
+ "vwap_capital_50bp_schedI": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 0.898517904764357
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.4734870911419993
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "FAIL",
+    "value": 1.179888522793756
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 1001.0936465855302
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.04944686573561552
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.06347999932250004
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "FAIL",
+    "value": 0.0263
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 865
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.026119499043038452
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0048
+   }
+  },
+  "row": {
+   "anchor": "VWAP",
+   "account": "Track 2: Capital.com, 0.50%",
+   "schedule": "I",
+   "trades": 865,
+   "win_rate": 0.4,
+   "payoff": 1.809174031440207,
+   "gross_exp_r": 0.08365205422522863,
+   "net_exp_r": 0.05897381726903645,
+   "t": 2.0383476693418427,
+   "long_n": 438,
+   "long_net_r": 0.11449014139644303,
+   "short_n": 427,
+   "short_net_r": 0.00202733022499879,
+   "net_eur": 1255.669038540259,
+   "mean_stop_pct": 0.6540078076525053,
+   "mean_leverage": 0.8749806374222041,
+   "share_leverage_capped": 0.07398843930635839,
+   "sharpe": 0.898517904764357,
+   "profit_factor": 1.179888522793756,
+   "cagr": 0.05109541699281994,
+   "max_dd": 0.04944686573561552,
+   "mc_p_dd20": 0.0,
+   "dsr": 0.4734870911419993,
+   "psr_zero": 0.9753226434055587,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 1001.0936465855302,
+   "ceiling_max_dd": 0.06347999932250004,
+   "ceiling_mc_p_dd20": 0.0263,
+   "burn_in_max_dd": 0.026119499043038452,
+   "burn_in_mc_p_dd20": 0.0048,
+   "final_equity": 6255.669038540258,
+   "in_sample_sharpe": 0.9127183797962302,
+   "in_sample_net_r": 0.06858119200934197,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 3,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); OOS net profit factor; Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  },
+  "breaker_events": [
+   [
+    "2021-02-23",
+    "intraday_halt",
+    4945.49
+   ],
+   [
+    "2022-12-01",
+    "intraday_halt",
+    5671.34
+   ],
+   [
+    "2023-03-01",
+    "intraday_halt",
+    5670.76
+   ],
+   [
+    "2023-03-07",
+    "intraday_halt",
+    5625.7
+   ],
+   [
+    "2023-12-08",
+    "intraday_halt",
+    5958.79
+   ]
+  ],
+  "breakdown": [
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "2021",
+    "trades": 186,
+    "win_rate": 0.41935483870967744,
+    "payoff": 1.8597721999735637,
+    "gross_exp_r": 0.11764342284147714,
+    "net_exp_r": 0.09022627491930875,
+    "t": 1.4767846672029818,
+    "long_n": 104,
+    "long_net_r": 0.17221421760888742,
+    "short_n": 82,
+    "short_net_r": -0.013758432882108053,
+    "net_eur": 373.9266069852549,
+    "mean_stop_pct": 0.5548734543645629,
+    "mean_leverage": 1.0023773269737903,
+    "share_leverage_capped": 0.12903225806451613,
+    "sharpe": 1.3329942931090102
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "2022",
+    "trades": 214,
+    "win_rate": 0.3691588785046729,
+    "payoff": 1.997728008940708,
+    "gross_exp_r": 0.06653501983176059,
+    "net_exp_r": 0.04890387331622465,
+    "t": 0.8484143315772744,
+    "long_n": 90,
+    "long_net_r": 0.07493215695322751,
+    "short_n": 124,
+    "short_net_r": 0.030012377128077396,
+    "net_eur": 276.64112236815754,
+    "mean_stop_pct": 0.9173996797048188,
+    "mean_leverage": 0.5939587528570557,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.8378557293340033
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "2023",
+    "trades": 186,
+    "win_rate": 0.40860215053763443,
+    "payoff": 1.6851061630379736,
+    "gross_exp_r": 0.07659611090621478,
+    "net_exp_r": 0.04982020942456509,
+    "t": 0.7807936420161261,
+    "long_n": 105,
+    "long_net_r": 0.14103002596110756,
+    "short_n": 81,
+    "short_net_r": -0.0684147379376196,
+    "net_eur": 279.5114222374009,
+    "mean_stop_pct": 0.5462863138955302,
+    "mean_leverage": 0.9723135218604723,
+    "share_leverage_capped": 0.03763440860215054,
+    "sharpe": 0.8631984762033565
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "2024",
+    "trades": 181,
+    "win_rate": 0.4143646408839779,
+    "payoff": 1.8282769797363216,
+    "gross_exp_r": 0.1156972693146868,
+    "net_exp_r": 0.08689866147526912,
+    "t": 1.2780632729530894,
+    "long_n": 89,
+    "long_net_r": 0.11904054768440613,
+    "short_n": 92,
+    "short_net_r": 0.055804880251212656,
+    "net_eur": 365.09091186201044,
+    "mean_stop_pct": 0.5109581811675632,
+    "mean_leverage": 0.9879163780412576,
+    "share_leverage_capped": 0.12154696132596685,
+    "sharpe": 1.1105141851204563
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "2025",
+    "trades": 98,
+    "win_rate": 0.3877551020408163,
+    "payoff": 1.5061613497560553,
+    "gross_exp_r": 0.01072217997752026,
+    "net_exp_r": -0.012554905785099988,
+    "t": -0.16638190652727564,
+    "long_n": 50,
+    "long_net_r": 0.0017949540939766295,
+    "short_n": 48,
+    "short_net_r": -0.027502676492471456,
+    "net_eur": -39.5010249125647,
+    "mean_stop_pct": 0.7356538211722408,
+    "mean_leverage": 0.8535277137771029,
+    "share_leverage_capped": 0.11224489795918367,
+    "sharpe": -0.2103996330606924
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 649,
+    "win_rate": 0.40061633281972264,
+    "payoff": 1.8325487234479743,
+    "gross_exp_r": 0.08855730831104655,
+    "net_exp_r": 0.06434199852141653,
+    "t": 1.922725154736185,
+    "long_n": 327,
+    "long_net_r": 0.1475254302888182,
+    "short_n": 322,
+    "short_net_r": -0.020133101441131163,
+    "net_eur": 1008.9512752006104,
+    "mean_stop_pct": 0.6640491772223936,
+    "mean_leverage": 0.8546403639649097,
+    "share_leverage_capped": 0.05855161787365177,
+    "sharpe": 0.9859753899279675
+   },
+   {
+    "anchor": "VWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "I",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 216,
+    "win_rate": 0.39814814814814814,
+    "payoff": 1.7380995933905872,
+    "gross_exp_r": 0.06891358245811835,
+    "net_exp_r": 0.04284442082091295,
+    "t": 0.742642753925746,
+    "long_n": 111,
+    "long_net_r": 0.01716996601079712,
+    "short_n": 105,
+    "short_net_r": 0.069985987334464,
+    "net_eur": 246.7177633396486,
+    "mean_stop_pct": 0.623837211120757,
+    "mean_leverage": 0.936095625726759,
+    "share_leverage_capped": 0.12037037037037036,
+    "sharpe": 0.6418436740701452
+   }
+  ]
+ },
+ "twap_capital_25bp_schedII": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 0.841357428503508
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.4241544031747243
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "FAIL",
+    "value": 1.1719641679623036
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 380.0860471529177
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.0247969040859084
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0048
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0643771541531325
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "FAIL",
+    "value": 0.0207
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 880
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0247969040859084
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0048
+   }
+  },
+  "row": {
+   "anchor": "TWAP",
+   "account": "Track 1: Capital.com, 0.25%",
+   "schedule": "II",
+   "trades": 880,
+   "win_rate": 0.4,
+   "payoff": 1.7666547994934032,
+   "gross_exp_r": 0.08852047432731439,
+   "net_exp_r": 0.05085795064128289,
+   "t": 1.7977787885606291,
+   "long_n": 450,
+   "long_net_r": 0.09442053455363376,
+   "short_n": 430,
+   "short_net_r": 0.005269200035334319,
+   "net_eur": 576.1534311590839,
+   "mean_stop_pct": 0.6427641465266458,
+   "mean_leverage": 0.4606044337379895,
+   "share_leverage_capped": 0.0,
+   "sharpe": 0.841357428503508,
+   "profit_factor": 1.1719641679623036,
+   "cagr": 0.02455383017140278,
+   "max_dd": 0.0247969040859084,
+   "mc_p_dd20": 0.0048,
+   "dsr": 0.4241544031747243,
+   "psr_zero": 0.9669605762346224,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 380.0860471529177,
+   "ceiling_max_dd": 0.0643771541531325,
+   "ceiling_mc_p_dd20": 0.0207,
+   "burn_in_max_dd": 0.0247969040859084,
+   "burn_in_mc_p_dd20": 0.0048,
+   "final_equity": 5576.153431159087,
+   "in_sample_sharpe": -0.4366077443609821,
+   "in_sample_net_r": -0.013134627005432754,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 3,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); OOS net profit factor; Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  },
+  "breaker_events": [],
+  "breakdown": [
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2021",
+    "trades": 188,
+    "win_rate": 0.4148936170212766,
+    "payoff": 1.7868989827076818,
+    "gross_exp_r": 0.1160618945726329,
+    "net_exp_r": 0.07130097199143581,
+    "t": 1.189958630594006,
+    "long_n": 105,
+    "long_net_r": 0.13658807699625622,
+    "short_n": 83,
+    "short_net_r": -0.011291148797794807,
+    "net_eur": 167.64866616254614,
+    "mean_stop_pct": 0.5502768291826813,
+    "mean_leverage": 0.5224119641124473,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.1619908452499443
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2022",
+    "trades": 216,
+    "win_rate": 0.3611111111111111,
+    "payoff": 2.0474851140799113,
+    "gross_exp_r": 0.07705227143705626,
+    "net_exp_r": 0.04586441174201079,
+    "t": 0.8006625459120968,
+    "long_n": 91,
+    "long_net_r": 0.07393241311028764,
+    "short_n": 125,
+    "short_net_r": 0.02543090674590529,
+    "net_eur": 124.76073618946523,
+    "mean_stop_pct": 0.8988427974422881,
+    "mean_leverage": 0.3010586792474833,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.7776438119054956
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2023",
+    "trades": 188,
+    "win_rate": 0.4148936170212766,
+    "payoff": 1.6143967649937883,
+    "gross_exp_r": 0.08860580746411689,
+    "net_exp_r": 0.04428703428012831,
+    "t": 0.7030237085311007,
+    "long_n": 107,
+    "long_net_r": 0.12011455419075087,
+    "short_n": 81,
+    "short_net_r": -0.05588018337958303,
+    "net_eur": 108.85760949758276,
+    "mean_stop_pct": 0.5368046653050058,
+    "mean_leverage": 0.5030280975645295,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.7176721569285703
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2024",
+    "trades": 188,
+    "win_rate": 0.42021276595744683,
+    "payoff": 1.7325947323550968,
+    "gross_exp_r": 0.11120454055730455,
+    "net_exp_r": 0.07429175510888479,
+    "t": 1.1484153178594596,
+    "long_n": 95,
+    "long_net_r": 0.08628332144816063,
+    "short_n": 93,
+    "short_net_r": 0.06204230562252777,
+    "net_eur": 187.76486400960357,
+    "mean_stop_pct": 0.5031648699295826,
+    "mean_leverage": 0.5463462777261477,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.1729179104313021
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "2025",
+    "trades": 100,
+    "win_rate": 0.39,
+    "payoff": 1.5138807807776111,
+    "gross_exp_r": 0.01870745169950294,
+    "net_exp_r": -0.008491115114697826,
+    "t": -0.11577913071303388,
+    "long_n": 52,
+    "long_net_r": 0.007124423759740614,
+    "short_n": 48,
+    "short_net_r": -0.02540794889533952,
+    "net_eur": -12.878444700113715,
+    "mean_stop_pct": 0.7251608818546749,
+    "mean_leverage": 0.4480739516418695,
+    "share_leverage_capped": 0.0,
+    "sharpe": -0.1609692833847954
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 657,
+    "win_rate": 0.3972602739726027,
+    "payoff": 1.812047492095736,
+    "gross_exp_r": 0.0955743472595463,
+    "net_exp_r": 0.055830218107631974,
+    "t": 1.7004405890855634,
+    "long_n": 332,
+    "long_net_r": 0.12707834981513236,
+    "short_n": 325,
+    "short_net_r": -0.01695248874433767,
+    "net_eur": 468.74995788028593,
+    "mean_stop_pct": 0.6531480056773333,
+    "mean_leverage": 0.4480297580878341,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.9222983376191837
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 1: Capital.com, 0.25%",
+    "schedule": "II",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 223,
+    "win_rate": 0.4080717488789238,
+    "payoff": 1.6365233332039517,
+    "gross_exp_r": 0.06773843613683743,
+    "net_exp_r": 0.036208714204550387,
+    "t": 0.64843255546419,
+    "long_n": 118,
+    "long_net_r": 0.0025358339873834674,
+    "short_n": 105,
+    "short_net_r": 0.07405061768669993,
+    "net_eur": 107.4034732787981,
+    "mean_stop_pct": 0.6121713417643067,
+    "mean_leverage": 0.4976517965279094,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.6007159845450452
+   }
+  ]
+ },
+ "twap_capital_25bp_schedI": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 1.0571361701086166
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.6112327241653003
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "PASS",
+    "value": 1.2221493345698182
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 605.9088339473401
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.02240987739933753
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0052
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0558351594188119
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0092
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 880
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.02240987739933753
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0052
+   }
+  },
+  "row": {
+   "anchor": "TWAP",
+   "account": "Track 1: Capital.com, 0.25%",
+   "schedule": "I",
+   "trades": 880,
+   "win_rate": 0.40795454545454546,
+   "payoff": 1.7830038051237347,
+   "gross_exp_r": 0.08852047432731439,
+   "net_exp_r": 0.06362312632386159,
+   "t": 2.249282332354852,
+   "long_n": 450,
+   "long_net_r": 0.10752859713845213,
+   "short_n": 430,
+   "short_net_r": 0.017675540587662204,
+   "net_eur": 736.7564479228456,
+   "mean_stop_pct": 0.6427641465266458,
+   "mean_leverage": 0.4607632119478838,
+   "share_leverage_capped": 0.0,
+   "sharpe": 1.0571361701086166,
+   "profit_factor": 1.2221493345698182,
+   "cagr": 0.031044896950550793,
+   "max_dd": 0.02240987739933753,
+   "mc_p_dd20": 0.0052,
+   "dsr": 0.6112327241653003,
+   "psr_zero": 0.9900835032772405,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 605.9088339473401,
+   "ceiling_max_dd": 0.0558351594188119,
+   "ceiling_mc_p_dd20": 0.0092,
+   "burn_in_max_dd": 0.02240987739933753,
+   "burn_in_mc_p_dd20": 0.0052,
+   "final_equity": 5736.7564479228495,
+   "in_sample_sharpe": 1.0253932745904746,
+   "in_sample_net_r": 0.07352665735124789,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 1,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff)"
+  },
+  "breaker_events": []
+ },
+ "twap_pepperstone_50bp_schedII": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 1.1079886556369496
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.6545981230619691
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "PASS",
+    "value": 1.2448450907513562
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 1040.423554863134
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.03819700487968458
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "FAIL",
+    "value": 0.0284
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.04568618269146463
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0017
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 838
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.019712374110364306
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0003
+   }
+  },
+  "row": {
+   "anchor": "TWAP",
+   "account": "Track 2: Pepperstone, 0.50%",
+   "schedule": "II",
+   "trades": 838,
+   "win_rate": 0.4009546539379475,
+   "payoff": 1.8645975020827936,
+   "gross_exp_r": 0.09379175491108906,
+   "net_exp_r": 0.06931119365314652,
+   "t": 2.362892708085435,
+   "long_n": 433,
+   "long_net_r": 0.11241222762447013,
+   "short_n": 405,
+   "short_net_r": 0.02323033511096594,
+   "net_eur": 1254.961765349066,
+   "mean_stop_pct": 0.5947440438209473,
+   "mean_leverage": 0.7439626310206406,
+   "share_leverage_capped": 0.07279236276849642,
+   "sharpe": 1.1079886556369496,
+   "profit_factor": 1.2448450907513562,
+   "cagr": 0.051068984063338485,
+   "max_dd": 0.03819700487968458,
+   "mc_p_dd20": 0.0284,
+   "dsr": 0.6545981230619691,
+   "psr_zero": 0.9930760513937884,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 1040.423554863134,
+   "ceiling_max_dd": 0.04568618269146463,
+   "ceiling_mc_p_dd20": 0.0017,
+   "burn_in_max_dd": 0.019712374110364306,
+   "burn_in_mc_p_dd20": 0.0003,
+   "final_equity": 6254.961765349076,
+   "in_sample_sharpe": -0.29248070833059936,
+   "in_sample_net_r": -0.043985391877650604,
+   "skipped_min_lot": 132,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 2,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); Monte Carlo P(DD >= 20%)"
+  },
+  "breaker_events": [],
+  "breakdown": [
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2021",
+    "trades": 187,
+    "win_rate": 0.41711229946524064,
+    "payoff": 1.877993243477784,
+    "gross_exp_r": 0.11799355885898524,
+    "net_exp_r": 0.0889263450782325,
+    "t": 1.4734085681049822,
+    "long_n": 105,
+    "long_net_r": 0.14986137803925503,
+    "short_n": 82,
+    "short_net_r": 0.010899778481801193,
+    "net_eur": 252.5863845551521,
+    "mean_stop_pct": 0.5425949397782914,
+    "mean_leverage": 0.8218269551985851,
+    "share_leverage_capped": 0.13368983957219252,
+    "sharpe": 1.1525382647006746
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2022",
+    "trades": 185,
+    "win_rate": 0.3621621621621622,
+    "payoff": 2.1768507477653487,
+    "gross_exp_r": 0.08838156155382385,
+    "net_exp_r": 0.06790293106382188,
+    "t": 1.0704958288010373,
+    "long_n": 80,
+    "long_net_r": 0.07496357138863949,
+    "short_n": 105,
+    "short_net_r": 0.06252339557824659,
+    "net_eur": 284.6407292678819,
+    "mean_stop_pct": 0.8013599954021532,
+    "mean_leverage": 0.4653684592011042,
+    "share_leverage_capped": 0.0,
+    "sharpe": 1.2268456921687232
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2023",
+    "trades": 186,
+    "win_rate": 0.41397849462365593,
+    "payoff": 1.7240191239567872,
+    "gross_exp_r": 0.09280832549486939,
+    "net_exp_r": 0.06424306034627497,
+    "t": 1.0112711742256344,
+    "long_n": 106,
+    "long_net_r": 0.14860600601631746,
+    "short_n": 80,
+    "short_net_r": -0.04753784266653134,
+    "net_eur": 244.48900907253403,
+    "mean_stop_pct": 0.5265034382393993,
+    "mean_leverage": 0.8084069122754317,
+    "share_leverage_capped": 0.03225806451612903,
+    "sharpe": 0.926666597718583
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2024",
+    "trades": 186,
+    "win_rate": 0.41935483870967744,
+    "payoff": 1.7971857469802437,
+    "gross_exp_r": 0.10849761939657648,
+    "net_exp_r": 0.0852458250343117,
+    "t": 1.3008612477552604,
+    "long_n": 94,
+    "long_net_r": 0.09673023047997402,
+    "short_n": 92,
+    "short_net_r": 0.07351175860070021,
+    "net_eur": 397.4512456052381,
+    "mean_stop_pct": 0.4934746344962695,
+    "mean_leverage": 0.8838933680673701,
+    "share_leverage_capped": 0.0913978494623656,
+    "sharpe": 1.3666609124952327
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "2025",
+    "trades": 94,
+    "win_rate": 0.3829787234042553,
+    "payoff": 1.6824199598749874,
+    "gross_exp_r": 0.029140430548894144,
+    "net_exp_r": 0.011559349192671615,
+    "t": 0.14875673242401116,
+    "long_n": 48,
+    "long_net_r": 0.04368928861115468,
+    "short_n": 46,
+    "short_net_r": -0.02196754411357163,
+    "net_eur": 75.79439684825964,
+    "mean_stop_pct": 0.6272631309061762,
+    "mean_leverage": 0.7329577348637885,
+    "share_leverage_capped": 0.13829787234042554,
+    "sharpe": 0.5916975065863762
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 622,
+    "win_rate": 0.4003215434083601,
+    "payoff": 1.9016857550207693,
+    "gross_exp_r": 0.10142540182571297,
+    "net_exp_r": 0.07538039659896176,
+    "t": 2.210438245101833,
+    "long_n": 320,
+    "long_net_r": 0.14447131496070686,
+    "short_n": 302,
+    "short_net_r": 0.002171476480556336,
+    "net_eur": 898.6852156630397,
+    "mean_stop_pct": 0.6059670149313747,
+    "mean_leverage": 0.7214757866258275,
+    "share_leverage_capped": 0.0594855305466238,
+    "sharpe": 1.1180943970060184
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Pepperstone, 0.50%",
+    "schedule": "II",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 216,
+    "win_rate": 0.4027777777777778,
+    "payoff": 1.7585011719665948,
+    "gross_exp_r": 0.07180967907360723,
+    "net_exp_r": 0.05183413702214153,
+    "t": 0.8994687116414511,
+    "long_n": 113,
+    "long_net_r": 0.02162543162804761,
+    "short_n": 103,
+    "short_net_r": 0.08497572643507952,
+    "net_eur": 356.27654968602627,
+    "mean_stop_pct": 0.5624260436788829,
+    "mean_leverage": 0.8087164144168159,
+    "share_leverage_capped": 0.1111111111111111,
+    "sharpe": 1.0788089854168548
+   }
+  ]
+ },
+ "twap_pepperstone_50bp_schedI": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 1.176460659065097
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.7093295892966405
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "PASS",
+    "value": 1.2615218557609598
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 1265.074413356052
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.037725891616011475
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "FAIL",
+    "value": 0.0276
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.042120743039440134
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0015
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 841
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.017543884371600482
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.001
+   }
+  },
+  "row": {
+   "anchor": "TWAP",
+   "account": "Track 2: Pepperstone, 0.50%",
+   "schedule": "I",
+   "trades": 841,
+   "win_rate": 0.40665873959571935,
+   "payoff": 1.8634622412492645,
+   "gross_exp_r": 0.09144491288288871,
+   "net_exp_r": 0.07617904721601926,
+   "t": 2.6036595586846416,
+   "long_n": 435,
+   "long_net_r": 0.11875347532378888,
+   "short_n": 406,
+   "short_net_r": 0.03056358852912321,
+   "net_eur": 1343.167634610635,
+   "mean_stop_pct": 0.5970278208327611,
+   "mean_leverage": 0.7437693179879344,
+   "share_leverage_capped": 0.07253269916765755,
+   "sharpe": 1.176460659065097,
+   "profit_factor": 1.2615218557609598,
+   "cagr": 0.054347723171122686,
+   "max_dd": 0.037725891616011475,
+   "mc_p_dd20": 0.0276,
+   "dsr": 0.7093295892966405,
+   "psr_zero": 0.9956128032162476,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 1265.074413356052,
+   "ceiling_max_dd": 0.042120743039440134,
+   "ceiling_mc_p_dd20": 0.0015,
+   "burn_in_max_dd": 0.017543884371600482,
+   "burn_in_mc_p_dd20": 0.001,
+   "final_equity": 6343.16763461063,
+   "in_sample_sharpe": 1.1837567650754117,
+   "in_sample_net_r": 0.08942720081072086,
+   "skipped_min_lot": 122,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 2,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff); Monte Carlo P(DD >= 20%)"
+  },
+  "breaker_events": []
+ },
+ "twap_capital_50bp_schedII": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "FAIL",
+    "value": 0.7646660301517627
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.36038728421748323
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "FAIL",
+    "value": 1.1497361550701672
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 658.1156468117106
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.04571415047374672
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0002
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0643771541531325
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "FAIL",
+    "value": 0.0207
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 880
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0247969040859084
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0048
+   }
+  },
+  "row": {
+   "anchor": "TWAP",
+   "account": "Track 2: Capital.com, 0.50%",
+   "schedule": "II",
+   "trades": 880,
+   "win_rate": 0.4,
+   "payoff": 1.7666547994934032,
+   "gross_exp_r": 0.08852047432731439,
+   "net_exp_r": 0.05085795064128287,
+   "t": 1.7977787885606287,
+   "long_n": 450,
+   "long_net_r": 0.09442053455363379,
+   "short_n": 430,
+   "short_net_r": 0.005269200035334304,
+   "net_eur": 1036.7675895940345,
+   "mean_stop_pct": 0.6427641465266458,
+   "mean_leverage": 0.8829744615927748,
+   "share_leverage_capped": 0.07727272727272727,
+   "sharpe": 0.7646660301517627,
+   "profit_factor": 1.1497361550701672,
+   "cagr": 0.04280110919271607,
+   "max_dd": 0.04571415047374672,
+   "mc_p_dd20": 0.0002,
+   "dsr": 0.36038728421748323,
+   "psr_zero": 0.9519374315852337,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 658.1156468117106,
+   "ceiling_max_dd": 0.0643771541531325,
+   "ceiling_mc_p_dd20": 0.0207,
+   "burn_in_max_dd": 0.0247969040859084,
+   "burn_in_mc_p_dd20": 0.0048,
+   "final_equity": 6036.767589594036,
+   "in_sample_sharpe": -0.5615546584442648,
+   "in_sample_net_r": -0.09143021626808104,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 4,
+   "failed": "OOS net Sharpe; Deflated Sharpe Ratio (zero-mean null, N_eff); OOS net profit factor; Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  },
+  "breaker_events": [
+   [
+    "2021-02-23",
+    "intraday_halt",
+    4939.85
+   ],
+   [
+    "2022-12-01",
+    "intraday_halt",
+    5568.41
+   ],
+   [
+    "2023-03-01",
+    "intraday_halt",
+    5549.33
+   ],
+   [
+    "2023-03-07",
+    "intraday_halt",
+    5501.95
+   ],
+   [
+    "2023-12-08",
+    "intraday_halt",
+    5794.63
+   ]
+  ],
+  "breakdown": [
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2021",
+    "trades": 188,
+    "win_rate": 0.4148936170212766,
+    "payoff": 1.786898982707682,
+    "gross_exp_r": 0.1160618945726329,
+    "net_exp_r": 0.07130097199143581,
+    "t": 1.189958630594006,
+    "long_n": 105,
+    "long_net_r": 0.13658807699625622,
+    "short_n": 83,
+    "short_net_r": -0.011291148797794802,
+    "net_eur": 290.7727023798005,
+    "mean_stop_pct": 0.5502768291826813,
+    "mean_leverage": 1.0059023284570976,
+    "share_leverage_capped": 0.13297872340425532,
+    "sharpe": 1.0542335245140855
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2022",
+    "trades": 216,
+    "win_rate": 0.3611111111111111,
+    "payoff": 2.047485114079911,
+    "gross_exp_r": 0.07705227143705626,
+    "net_exp_r": 0.04586441174201078,
+    "t": 0.8006625459120967,
+    "long_n": 91,
+    "long_net_r": 0.07393241311028764,
+    "short_n": 125,
+    "short_net_r": 0.02543090674590528,
+    "net_eur": 257.3548808589643,
+    "mean_stop_pct": 0.8988427974422881,
+    "mean_leverage": 0.6044260960306908,
+    "share_leverage_capped": 0.0,
+    "sharpe": 0.7865775201327548
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2023",
+    "trades": 188,
+    "win_rate": 0.4148936170212766,
+    "payoff": 1.6143967649937885,
+    "gross_exp_r": 0.08860580746411689,
+    "net_exp_r": 0.044287034280128305,
+    "t": 0.7030237085311006,
+    "long_n": 107,
+    "long_net_r": 0.12011455419075089,
+    "short_n": 81,
+    "short_net_r": -0.05588018337958301,
+    "net_eur": 203.9693789863851,
+    "mean_stop_pct": 0.5368046653050058,
+    "mean_leverage": 0.9842945785564953,
+    "share_leverage_capped": 0.031914893617021274,
+    "sharpe": 0.659678871682565
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2024",
+    "trades": 188,
+    "win_rate": 0.42021276595744683,
+    "payoff": 1.7325947323550968,
+    "gross_exp_r": 0.11120454055730455,
+    "net_exp_r": 0.07429175510888479,
+    "t": 1.1484153178594596,
+    "long_n": 95,
+    "long_net_r": 0.08628332144816063,
+    "short_n": 93,
+    "short_net_r": 0.06204230562252775,
+    "net_eur": 310.8464830496251,
+    "mean_stop_pct": 0.5031648699295826,
+    "mean_leverage": 0.9878520588984149,
+    "share_leverage_capped": 0.1276595744680851,
+    "sharpe": 1.0048382340401167
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "2025",
+    "trades": 100,
+    "win_rate": 0.39,
+    "payoff": 1.5138807807776111,
+    "gross_exp_r": 0.01870745169950294,
+    "net_exp_r": -0.008491115114697793,
+    "t": -0.1157791307130334,
+    "long_n": 52,
+    "long_net_r": 0.007124423759740642,
+    "short_n": 48,
+    "short_net_r": -0.025407948895339483,
+    "net_eur": -26.17585568074059,
+    "mean_stop_pct": 0.7251608818546749,
+    "mean_leverage": 0.8658828386755519,
+    "share_leverage_capped": 0.13,
+    "sharpe": -0.138324173371338
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "before publication (2021-01 .. 2024-04)",
+    "trades": 657,
+    "win_rate": 0.3972602739726027,
+    "payoff": 1.812047492095736,
+    "gross_exp_r": 0.0955743472595463,
+    "net_exp_r": 0.055830218107631974,
+    "t": 1.7004405890855634,
+    "long_n": 332,
+    "long_net_r": 0.12707834981513236,
+    "short_n": 325,
+    "short_net_r": -0.016952488744337676,
+    "net_eur": 835.1117975032569,
+    "mean_stop_pct": 0.6531480056773333,
+    "mean_leverage": 0.860147066122731,
+    "share_leverage_capped": 0.060882800608828,
+    "sharpe": 0.8368816609378086
+   },
+   {
+    "anchor": "TWAP",
+    "account": "Track 2: Capital.com, 0.50%",
+    "schedule": "II",
+    "slice": "after publication (2024-05 .. 2025-07)",
+    "trades": 223,
+    "win_rate": 0.4080717488789238,
+    "payoff": 1.636523333203952,
+    "gross_exp_r": 0.06773843613683743,
+    "net_exp_r": 0.0362087142045504,
+    "t": 0.6484325554641902,
+    "long_n": 118,
+    "long_net_r": 0.0025358339873834575,
+    "short_n": 105,
+    "short_net_r": 0.07405061768669995,
+    "net_eur": 201.65579209077717,
+    "mean_stop_pct": 0.6121713417643067,
+    "mean_leverage": 0.950228267977612,
+    "share_leverage_capped": 0.12556053811659193,
+    "sharpe": 0.5515943530269479
+   }
+  ]
+ },
+ "twap_capital_50bp_schedI": {
+  "gates": {
+   "OOS net Sharpe": {
+    "status": "PASS",
+    "value": 1.0469709963273015
+   },
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)": {
+    "status": "FAIL",
+    "value": 0.6024962203647947
+   },
+   "CSCV P(OOS loss of IS-best)": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "CSCV rank PBO": {
+    "status": "N/A (no selection)",
+    "value": null
+   },
+   "OOS net profit factor": {
+    "status": "PASS",
+    "value": 1.2132355911213346
+   },
+   "OOS net P&L under 1.5x costs": {
+    "status": "PASS",
+    "value": 1119.652194457768
+   },
+   "OOS maximum drawdown (true high-water mark)": {
+    "status": "PASS",
+    "value": 0.04229872524095579
+   },
+   "Monte Carlo P(DD >= 20%)": {
+    "status": "PASS",
+    "value": 0.0002
+   },
+   "OOS maximum drawdown at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0558351594188119
+   },
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling": {
+    "status": "PASS",
+    "value": 0.0092
+   },
+   "Independent OOS trades": {
+    "status": "PASS",
+    "value": 880
+   },
+   "Max drawdown at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.02240987739933753
+   },
+   "Monte Carlo P(DD >= 20%) at 0.25% risk": {
+    "status": "PASS",
+    "value": 0.0052
+   }
+  },
+  "row": {
+   "anchor": "TWAP",
+   "account": "Track 2: Capital.com, 0.50%",
+   "schedule": "I",
+   "trades": 880,
+   "win_rate": 0.40795454545454546,
+   "payoff": 1.7830038051237347,
+   "gross_exp_r": 0.08852047432731439,
+   "net_exp_r": 0.06362312632386159,
+   "t": 2.249282332354852,
+   "long_n": 450,
+   "long_net_r": 0.10752859713845214,
+   "short_n": 430,
+   "short_net_r": 0.017675540587662207,
+   "net_eur": 1524.192746994905,
+   "mean_stop_pct": 0.6427641465266458,
+   "mean_leverage": 0.9047144315610144,
+   "share_leverage_capped": 0.06931818181818182,
+   "sharpe": 1.0469709963273015,
+   "profit_factor": 1.2132355911213346,
+   "cagr": 0.060967178539014455,
+   "max_dd": 0.04229872524095579,
+   "mc_p_dd20": 0.0002,
+   "dsr": 0.6024962203647947,
+   "psr_zero": 0.9893958376805263,
+   "sr0_ann": 0.9289210036172557,
+   "stress_net_eur": 1119.652194457768,
+   "ceiling_max_dd": 0.0558351594188119,
+   "ceiling_mc_p_dd20": 0.0092,
+   "burn_in_max_dd": 0.02240987739933753,
+   "burn_in_mc_p_dd20": 0.0052,
+   "final_equity": 6524.192746994911,
+   "in_sample_sharpe": 1.0375095536555685,
+   "in_sample_net_r": 0.07352665735124787,
+   "skipped_min_lot": 0,
+   "halted_entries": 0,
+   "pauses": 0,
+   "deactivated": "None",
+   "gates_failed": 1,
+   "failed": "Deflated Sharpe Ratio (zero-mean null, N_eff)"
+  },
+  "breaker_events": [
+   [
+    "2021-02-23",
+    "intraday_halt",
+    4949.75
+   ],
+   [
+    "2022-12-01",
+    "intraday_halt",
+    5749.11
+   ],
+   [
+    "2023-03-01",
+    "intraday_halt",
+    5752.23
+   ],
+   [
+    "2023-03-07",
+    "intraday_halt",
+    5706.53
+   ],
+   [
+    "2023-12-08",
+    "intraday_halt",
+    6123.43
+   ]
+  ]
+ }
+}
