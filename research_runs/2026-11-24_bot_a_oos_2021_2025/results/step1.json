@@ -1,0 +1,24 @@
+{
+ "reproduction": {
+  "trades": 1021,
+  "max_abs_net_r_difference": 8.881784197001252e-16,
+  "mean_net_r": 0.08575877028841508
+ },
+ "vwap_vs_twap": {
+  "trades_vwap": 1069,
+  "trades_twap": 1081,
+  "same_entry": 1048,
+  "daily_pnl_correlation": 0.989199417143881,
+  "same_entry_same_exit_minute": 978,
+  "mean_stop_pct_vwap": 0.5360883831582337,
+  "mean_stop_pct_twap": 0.5364326350513459,
+  "mean_abs_anchor_gap_bps": 4.573966568136634
+ },
+ "intraday_trials": {
+  "k_raw": 9,
+  "rho_bar": 0.0343,
+  "n_eff": 8.73,
+  "mean_signed_correlation": 0.0343
+ },
+ "prior_eff_trials_total": 22.44
+}

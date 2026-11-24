@@ -42,6 +42,24 @@ the hypothesis is archived. Should any of these configurations nevertheless be t
 pre-registration must add them to the 11.71 above: as a floor, one further effective trial for the
 planned family and one for the unplanned filter.
 
+## Intraday rules (2015–2020 triage) and the Bot A hold-out
+
+Nine intraday rules were run on 2015–2020 in two triage rounds
+(`research_runs/2026-11-24_intraday_triage_2015_2020/`). The average pairwise correlation of their
+daily results is 0.034, so they count as **8.73** effective trials.
+
+| Carried into the Bot A out-of-sample DSR | Effective trials |
+|---|---:|
+| Swing ablations on 2019–2025 | 11.71 |
+| Phase 0 families | 2.00 |
+| Intraday triage, nine rules | 8.73 |
+| **Total** | **22.44** |
+
+Bot A was then run once on 2021–2025 (`research_runs/2026-11-24_bot_a_oos_2021_2025/`). That
+hold-out is spent for the rule. Any further test of it, or of a variant chosen after seeing that
+result (long-only, TWAP, another broker's costs), adds at least one trial to the 22.44 and has no
+untouched NASDAQ-100 data left to run on.
+
 ## How it enters the DSR
 
 ```bash

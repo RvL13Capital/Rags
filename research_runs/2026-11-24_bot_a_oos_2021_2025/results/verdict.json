@@ -1,0 +1,21 @@
+{
+ "verdict": "NO-GO",
+ "rows": {
+  "Track 1: Capital.com, 0.25%": [
+   "OOS net Sharpe",
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)",
+   "OOS net profit factor",
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  ],
+  "Track 2: Pepperstone, 0.50%": [
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)",
+   "Monte Carlo P(DD >= 20%)"
+  ],
+  "Track 2: Capital.com, 0.50%": [
+   "OOS net Sharpe",
+   "Deflated Sharpe Ratio (zero-mean null, N_eff)",
+   "OOS net profit factor",
+   "Monte Carlo P(DD >= 20%) at the 0.75% risk ceiling"
+  ]
+ }
+}
